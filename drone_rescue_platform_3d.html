@@ -1,0 +1,3503 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>应急救援6机协同指挥可视化平台 V2.0 — 3D地图版</title>
+
+<!--
+============================================================================
+项目名称：应急救援6机协同指挥可视化平台（3D地图版）
+版本号：V2.0
+功能说明：
+  面向地震、森林火灾等突发灾害的无人机指挥系统可视化平台。
+  采用「4架固定翼 + 2架倾转垂直起降」标准化编队作业，
+  实现通信保障、人员定位、地形勘探、物资投送、灭火处置全流程调度。
+  基于高德地图JS API 2.0 真实3D地图（倾斜/旋转/3D建筑），Web深色科技风。
+作者：资深Python桌面应用开发工程师
+============================================================================
+
+【运行前必读 - 高德Key配置】
+1. 访问 https://lbs.amap.com/ 注册账号 → 控制台 → 应用管理 → 创建新应用
+2. 获取 "Web端(JS API)" 类型的 Key，以及对应的 "安全密钥(securityJsCode)"
+3. 将下方 AMAP_KEY 替换为你的 Key，AMAP_SECRET 替换为你的安全密钥
+4. 双击本HTML文件用浏览器打开即可（建议Chrome/Edge）
+============================================================================
+-->
+
+<!-- 高德地图 JS API 安全密钥配置（替换 AMAP_SECRET） -->
+<script type="text/javascript">
+  window._AMapSecurityConfig = {
+    securityJsCode: '322cc7c747eebdd873ab4059136ff1da'
+  };
+</script>
+<!-- 高德地图 JS API 2.0 引入（替换 AMAP_KEY） -->
+<script src="https://webapi.amap.com/maps?v=2.0&key=bf39ddea2d3217a67f1a8461f5033191"></script>
+
+<style>
+  /* =========================================================================
+     一、全局样式与配色（应急指挥中心深色科技风）
+     ========================================================================= */
+  :root{
+    --bg:#1a1a2e;            /* 主底色 */
+    --panel:#16213e;          /* 面板背景 */
+    --panel2:#0f3460;         /* 次级面板/卡片 */
+    --hi:#00ffcc;             /* 高亮青 */
+    --red:#ef476f;            /* 警示红 */
+    --yellow:#ffd166;         /* 警示黄 */
+    --orange:#ff9f43;         /* 缺粮橙 */
+    --blue:#54a0ff;           /* 被困蓝 */
+    --text:#e8e8e8;           /* 主文字 */
+    --dim:#8a8aa0;            /* 次要文字 */
+    --border:#2a3a5c;         /* 边框 */
+  }
+  *{margin:0;padding:0;box-sizing:border-box;font-family:"微软雅黑",sans-serif;}
+  html,body{height:100%;overflow:hidden;background:var(--bg);color:var(--text);}
+
+  /* 顶部标题栏 */
+  #header{
+    height:56px;background:var(--panel2);display:flex;align-items:center;
+    justify-content:space-between;padding:0 20px;border-bottom:1px solid var(--border);
+  }
+  #header .title{font-size:20px;font-weight:bold;color:var(--hi);letter-spacing:1px;}
+  #header .right{display:flex;align-items:center;gap:16px;font-size:12px;}
+  #clock{color:var(--text);}
+  .dot{font-size:14px;color:var(--hi);animation:blink 1s infinite alternate;}
+  @keyframes blink{from{opacity:1;}to{opacity:0.3;}}
+  @keyframes pulse{0%{box-shadow:0 0 0 0 rgba(0,255,204,.7);}50%{box-shadow:0 0 0 10px rgba(0,255,204,0);}100%{box-shadow:0 0 0 0 rgba(0,255,204,0);}}
+  @keyframes signalRing{0%{opacity:0.8;transform:translate(-50%,-50%) scale(0.3);}100%{opacity:0;transform:translate(-50%,-50%) scale(1);}}
+
+  /* 主体三栏布局 */
+  #main{display:flex;height:calc(100% - 56px - 64px - 28px);}
+  #left-panel{
+    width:300px;background:var(--panel);border-right:1px solid var(--border);
+    display:flex;flex-direction:column;overflow:hidden;
+  }
+  #center-map{flex:1;position:relative;}
+  #right-panel{
+    width:360px;background:var(--panel);border-left:1px solid var(--border);
+    display:flex;flex-direction:column;overflow:hidden;
+  }
+
+  /* 栏目标题 */
+  .panel-head{
+    height:38px;background:var(--panel2);display:flex;align-items:center;
+    padding:0 14px;font-size:13px;font-weight:bold;color:var(--hi);
+    border-bottom:1px solid var(--border);
+  }
+  .panel-body{flex:1;overflow-y:auto;padding:8px;}
+  .panel-body::-webkit-scrollbar{width:6px;}
+  .panel-body::-webkit-scrollbar-thumb{background:var(--border);border-radius:3px;}
+
+  /* 编队统计 */
+  .summary{font-size:11px;color:var(--text);padding:8px 10px;background:var(--panel2);
+    margin:6px 8px;border-radius:4px;border-left:3px solid var(--hi);}
+
+  /* 无人机卡片 */
+  .drone-card{
+    background:var(--panel2);border:1px solid var(--border);border-left:4px solid var(--hi);
+    border-radius:4px;padding:8px 10px;margin:6px 8px;position:relative;
+  }
+  .drone-card.standby{border-left-color:var(--yellow);}
+  .drone-card.fault{border-left-color:var(--red);}
+  .dc-row1{display:flex;justify-content:space-between;align-items:center;}
+  .dc-id{font-size:13px;font-weight:bold;}
+  .dc-status{font-size:11px;padding:1px 6px;border-radius:8px;}
+  .dc-status.work{color:var(--hi);}
+  .dc-status.standby{color:var(--yellow);}
+  .dc-status.fault{color:var(--red);}
+  .dc-type{font-size:10px;color:var(--dim);margin-top:3px;}
+  .dc-task{font-size:11px;color:var(--hi);margin-top:2px;}
+  .dc-meta{font-size:10px;color:var(--text);margin-top:3px;display:flex;gap:10px;}
+  .dc-meta .low{color:var(--red);}
+
+  /* 被困人员列表 */
+  .tip{font-size:10px;color:var(--dim);padding:4px 10px;line-height:1.5;}
+  .plist-head{
+    display:grid;grid-template-columns:55px 50px 90px 1fr;font-size:10px;font-weight:bold;
+    color:var(--hi);background:var(--panel2);padding:6px 10px;gap:4px;
+  }
+  .prow{
+    display:grid;grid-template-columns:55px 50px 90px 1fr;font-size:11px;
+    padding:6px 10px;gap:4px;border-bottom:1px solid var(--border);cursor:pointer;
+    transition:background .15s;
+  }
+  .prow:hover{background:var(--panel2);}
+  .prow.sel{background:var(--panel2);}
+  .prow.sel .p-id{color:var(--hi);}
+  .p-code{font-weight:bold;}
+
+  /* 导航详情 */
+  .detail{
+    margin:8px;background:var(--panel2);border:1px solid var(--border);border-radius:4px;
+    padding:10px;font-size:11px;line-height:1.7;color:var(--hi);
+  }
+  .detail .lbl{color:var(--dim);font-size:10px;}
+  .detail.empty{color:var(--dim);text-align:center;}
+
+  /* 底部按钮区 */
+  #footer{
+    height:64px;background:var(--panel2);display:flex;align-items:center;
+    justify-content:space-between;padding:0 20px;border-top:1px solid var(--border);
+  }
+  #footer .label{font-size:13px;font-weight:bold;color:var(--hi);}
+  .btns{display:flex;gap:10px;}
+  .btn{
+    font-size:12px;font-weight:bold;padding:8px 16px;border:none;border-radius:4px;
+    cursor:pointer;color:var(--bg);transition:transform .1s,box-shadow .2s;
+  }
+  .btn:hover{transform:translateY(-2px);box-shadow:0 4px 12px rgba(0,0,0,.4);}
+  .btn:active{transform:translateY(0);}
+  .btn.refresh{background:var(--hi);}
+  .btn.supply{background:var(--yellow);}
+  .btn.fire{background:var(--red);}
+  .btn.national{background:var(--blue);}
+
+  /* 状态栏 */
+  #statusbar{
+    height:28px;background:var(--panel);color:var(--dim);font-size:11px;
+    display:flex;align-items:center;padding:0 14px;border-top:1px solid var(--border);
+  }
+
+  /* 隐藏高德地图默认POI信息窗口内的"详情"链接，仅保留关闭按钮，避免干扰 */
+  .amap-info-content a[target="_blank"],
+  .amap-info-content .amap-info-more{
+    display:none !important;
+  }
+
+  /* 地图浮动控件 */
+  .map-tip{
+    position:absolute;top:10px;left:10px;background:rgba(15,52,96,.85);
+    padding:6px 12px;border-radius:4px;font-size:11px;color:var(--hi);
+    border:1px solid var(--border);pointer-events:none;z-index:100;
+  }
+
+  /* 编辑工具栏 */
+  #edit-toolbar{
+    position:absolute;top:8px;left:50%;transform:translateX(-50%);z-index:200;
+    background:rgba(15,52,96,.95);border:1px solid var(--border);border-radius:6px;
+    padding:6px 10px;display:flex;align-items:center;gap:6px;font-size:11px;
+    box-shadow:0 2px 12px rgba(0,0,0,.5);
+  }
+  .tb-title{color:var(--dim);font-size:11px;margin-right:4px;}
+  .tb-btn{
+    background:var(--panel);color:var(--text);border:1px solid var(--border);
+    padding:4px 10px;border-radius:3px;cursor:pointer;font-size:11px;
+    transition:all .15s;font-family:inherit;
+  }
+  .tb-btn:hover{background:var(--panel2);border-color:var(--hi);}
+  .tb-btn.active{background:var(--hi);color:var(--bg);border-color:var(--hi);font-weight:bold;}
+  .tb-btn.tb-end{background:var(--yellow);color:var(--bg);border-color:var(--yellow);display:none;}
+  .tb-btn.tb-end.show{display:inline-block;}
+  .tb-btn.tb-clear{background:var(--red);color:#fff;border-color:var(--red);display:inline-block;margin-left:8px;}
+  .tb-btn.tb-survey{background:var(--orange);color:#fff;border-color:var(--orange);margin-left:6px;}
+  .tb-btn.tb-survey:hover{background:#ff9f43;}
+  .tb-hint{color:var(--yellow);margin-left:8px;font-size:10px;}
+
+  /* 弹窗 */
+  .modal-mask{
+    position:absolute;inset:0;background:rgba(10,10,20,.7);z-index:300;
+    display:flex;align-items:center;justify-content:center;
+  }
+  .modal-box{
+    background:var(--panel);border:1px solid var(--hi);border-radius:6px;
+    padding:20px;width:320px;box-shadow:0 8px 32px rgba(0,0,0,.6);
+  }
+  .modal-title{font-size:14px;font-weight:bold;color:var(--hi);margin-bottom:14px;}
+  .modal-row{display:flex;align-items:center;gap:8px;margin-bottom:10px;font-size:12px;}
+  .modal-row label{width:80px;color:var(--dim);}
+  .modal-row input,.modal-row select{
+    flex:1;background:var(--panel2);border:1px solid var(--border);
+    color:var(--text);padding:5px 8px;border-radius:3px;font-size:12px;font-family:inherit;
+  }
+  .modal-btns{display:flex;justify-content:flex-end;gap:8px;margin-top:14px;}
+  .btn-modal-ok{background:var(--hi);color:var(--bg);border:none;padding:6px 16px;
+    border-radius:3px;cursor:pointer;font-weight:bold;font-size:12px;font-family:inherit;}
+  .btn-modal-cancel{background:var(--panel2);color:var(--text);border:1px solid var(--border);
+    padding:6px 16px;border-radius:3px;cursor:pointer;font-size:12px;font-family:inherit;}
+
+  /* 非阻塞通知系统（替代alert，避免阻塞webview导致宿主React崩溃） */
+  #notice-overlay{
+    position:fixed;top:0;left:0;right:0;bottom:0;z-index:9999;
+    background:rgba(10,10,20,.5);display:none;align-items:center;justify-content:center;
+  }
+  #notice-overlay.show{display:flex;}
+  .notice-box{
+    background:var(--panel);border:1px solid var(--hi);border-radius:6px;
+    padding:18px 22px;max-width:440px;max-height:80vh;overflow-y:auto;
+    box-shadow:0 8px 32px rgba(0,0,0,.6);font-size:12px;line-height:1.7;
+    color:var(--text);white-space:pre-wrap;word-break:break-word;
+  }
+  .notice-box.warn{border-color:var(--yellow);}
+  .notice-box.error{border-color:var(--red);}
+  .notice-box.info{border-color:var(--blue);}
+  .notice-title{
+    font-size:14px;font-weight:bold;color:var(--hi);margin-bottom:10px;
+    padding-bottom:8px;border-bottom:1px solid var(--border);
+  }
+  .notice-box.warn .notice-title{color:var(--yellow);}
+  .notice-box.error .notice-title{color:var(--red);}
+  .notice-box.info .notice-title{color:var(--blue);}
+  .notice-body{font-size:12px;line-height:1.8;color:var(--text);}
+  .notice-btn{
+    display:block;margin:14px auto 0;background:var(--hi);color:var(--bg);
+    border:none;padding:6px 28px;border-radius:3px;cursor:pointer;
+    font-weight:bold;font-size:12px;font-family:inherit;
+  }
+  .notice-btn:hover{opacity:.85;}
+
+  /* 非阻塞确认弹窗（替代confirm，带确认/取消按钮） */
+  #confirm-overlay{
+    position:fixed;top:0;left:0;right:0;bottom:0;z-index:10000;
+    background:rgba(10,10,20,.5);display:none;align-items:center;justify-content:center;
+  }
+  #confirm-overlay.show{display:flex;}
+  .confirm-box{
+    background:var(--panel);border:1px solid var(--yellow);border-radius:6px;
+    padding:18px 22px;max-width:400px;width:90%;
+    box-shadow:0 8px 32px rgba(0,0,0,.6);
+  }
+  .confirm-title{
+    font-size:14px;font-weight:bold;color:var(--yellow);margin-bottom:10px;
+    padding-bottom:8px;border-bottom:1px solid var(--border);
+  }
+  .confirm-body{font-size:12px;line-height:1.8;color:var(--text);white-space:pre-wrap;word-break:break-word;margin-bottom:16px;}
+  .confirm-btns{display:flex;justify-content:flex-end;gap:8px;}
+  .confirm-btn-ok{
+    background:var(--red);color:#fff;border:none;padding:6px 18px;border-radius:3px;
+    cursor:pointer;font-weight:bold;font-size:12px;font-family:inherit;
+  }
+  .confirm-btn-ok:hover{opacity:.85;}
+  .confirm-btn-cancel{
+    background:var(--panel2);color:var(--text);border:1px solid var(--border);
+    padding:6px 18px;border-radius:3px;cursor:pointer;font-size:12px;font-family:inherit;
+  }
+
+  /* 无人机点击操作浮层菜单 */
+  .drone-ctx-menu{
+    position:absolute;z-index:5000;background:var(--panel);
+    border:1px solid var(--hi);border-radius:4px;padding:4px 0;
+    box-shadow:0 4px 16px rgba(0,0,0,.5);min-width:140px;display:none;
+  }
+  .drone-ctx-menu.show{display:block;}
+  .dcx-title{
+    font-size:11px;font-weight:bold;color:var(--hi);padding:4px 12px;
+    border-bottom:1px solid var(--border);margin-bottom:2px;
+  }
+  .dcx-item{
+    font-size:11px;color:var(--text);padding:5px 12px;cursor:pointer;
+    transition:background .12s;
+  }
+  .dcx-item:hover{background:var(--panel2);}
+  .dcx-item.dcx-del{color:var(--red);}
+  .dcx-item.dcx-del:hover{background:var(--red);color:#fff;}
+
+  /* 无人机卡片可点击 */
+  .drone-card{cursor:pointer;transition:all .15s;}
+  .drone-card:hover{transform:translateX(2px);box-shadow:0 2px 8px rgba(0,255,204,.2);}
+  .drone-card.selected{border-color:var(--hi);box-shadow:0 0 0 2px rgba(0,255,204,.4);}
+  .dc-ctrl-hint{font-size:9px;color:var(--yellow);margin-top:3px;}
+  .dc-actions{
+    display:flex;gap:6px;margin-top:8px;padding-top:8px;
+    border-top:1px dashed var(--border);
+  }
+  .dc-btn{
+    flex:1;padding:4px 0;border:none;border-radius:3px;
+    font-size:10px;cursor:pointer;font-family:inherit;
+    transition:all .15s;font-weight:bold;
+  }
+  .dc-btn:hover{opacity:.8;transform:translateY(-1px);}
+  .dc-btn.dc-toggle.btn-work{background:var(--hi);color:var(--bg);}
+  .dc-btn.dc-toggle.btn-standby{background:var(--yellow);color:var(--bg);}
+  .dc-btn.dc-delete{background:var(--panel);color:var(--red);border:1px solid var(--red);}
+  .dc-btn.dc-delete:hover{background:var(--red);color:#fff;}
+
+  /* 全国部署按钮 */
+  .btn.deploy{background:#9b59b6;}
+
+  /* 人员搜救按钮 */
+  .btn.search{background:#54a0ff;}
+  .btn.search:hover{background:#6ab0ff;}
+
+  /* 搜救扫描动画覆盖圈 */
+  .search-scan-ring{
+    position:absolute;border:2px solid #54a0ff;border-radius:50%;
+    pointer-events:none;z-index:115;
+    animation:scanPulse 2s ease-out infinite;
+  }
+  @keyframes scanPulse{
+    0%{opacity:0.9;transform:scale(0.2);}
+    100%{opacity:0;transform:scale(1);}
+  }
+  /* 5G信号传输指示线 */
+  .signal-transfer-label{
+    position:absolute;background:rgba(0,255,204,.95);color:#1a1a2e;
+    font-size:10px;font-weight:bold;padding:2px 6px;border-radius:3px;
+    border:1px solid #00ffcc;white-space:nowrap;z-index:118;
+    pointer-events:none;animation:transferBlink 1.2s ease-out;
+  }
+  @keyframes transferBlink{
+    0%{opacity:0;transform:translateY(8px);}
+    30%{opacity:1;transform:translateY(0);}
+    100%{opacity:0;transform:translateY(-12px);}
+  }
+  /* 5G基站无人机协同信号：基站→搜救机（查询） */
+  .signal-query-label{
+    position:absolute;background:rgba(84,160,255,.95);color:#fff;
+    font-size:10px;font-weight:bold;padding:2px 6px;border-radius:3px;
+    border:1px solid #54a0ff;white-space:nowrap;z-index:119;
+    pointer-events:none;animation:queryBlink 1.6s ease-out;
+  }
+  @keyframes queryBlink{
+    0%{opacity:0;transform:scale(0.6);}
+    25%{opacity:1;transform:scale(1.1);}
+    60%{opacity:1;transform:scale(1);}
+    100%{opacity:0;transform:scale(0.9);}
+  }
+  /* 5G基站无人机协同信号：搜救机→基站（回传人员情况） */
+  .signal-reply-label{
+    position:absolute;background:rgba(255,209,102,.95);color:#1a1a2e;
+    font-size:10px;font-weight:bold;padding:2px 6px;border-radius:3px;
+    border:1px solid #ffd166;white-space:nowrap;z-index:120;
+    pointer-events:none;animation:replyBlink 1.8s ease-out;
+  }
+  @keyframes replyBlink{
+    0%{opacity:0;transform:translateY(-6px) scale(0.7);}
+    30%{opacity:1;transform:translateY(0) scale(1.05);}
+    70%{opacity:1;transform:scale(1);}
+    100%{opacity:0;transform:translateY(8px) scale(0.95);}
+  }
+  /* 物资申请浮层面板 */
+  .supply-req-panel{
+    position:absolute;bottom:80px;right:10px;width:280px;
+    background:rgba(22,33,62,.97);border:1px solid var(--orange);
+    border-radius:6px;z-index:260;display:none;flex-direction:column;
+    overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,.5);
+  }
+  .supply-req-panel.show{display:flex;}
+  .srp-head{
+    height:34px;background:var(--panel2);display:flex;align-items:center;
+    padding:0 12px;border-bottom:1px solid var(--border);
+  }
+  .srp-title{font-size:12px;font-weight:bold;color:var(--orange);flex:1;}
+  .srp-close{
+    background:var(--red);color:#fff;border:none;padding:3px 8px;border-radius:3px;
+    cursor:pointer;font-size:11px;font-family:inherit;
+  }
+  .srp-body{padding:8px;max-height:240px;overflow-y:auto;}
+  .srp-item{
+    background:var(--panel2);border:1px solid var(--border);border-left:3px solid var(--orange);
+    border-radius:3px;padding:6px 8px;margin:4px 0;font-size:11px;
+  }
+  .srp-item .srp-pid{font-weight:bold;color:var(--hi);}
+  .srp-item .srp-need{color:var(--yellow);margin-top:2px;}
+  .srp-item .srp-status{font-size:10px;margin-top:3px;}
+  .srp-item .srp-status.pending{color:var(--yellow);}
+  .srp-item .srp-status.approved{color:var(--hi);}
+  .srp-actions{display:flex;gap:4px;margin-top:4px;}
+  .srp-btn{
+    flex:1;padding:3px 0;border:none;border-radius:2px;font-size:10px;
+    cursor:pointer;font-family:inherit;font-weight:bold;
+  }
+  .srp-btn.approve{background:var(--hi);color:var(--bg);}
+  .srp-btn.dispatch{background:var(--orange);color:#fff;}
+
+
+  /* 全国部署指挥中心 - 滑入式侧栏面板（地图上操作，无独立地图） */
+  .deploy-panel{
+    position:absolute;top:8px;right:8px;width:320px;max-height:calc(100% - 16px);
+    background:rgba(22,33,62,.97);border:1px solid var(--hi);border-radius:6px;
+    z-index:250;display:flex;flex-direction:column;overflow:hidden;
+    box-shadow:0 4px 24px rgba(0,0,0,.5);backdrop-filter:blur(4px);
+  }
+  .dpp-head{
+    height:36px;background:var(--panel2);display:flex;align-items:center;
+    padding:0 12px;border-bottom:1px solid var(--border);
+  }
+  .dpp-title{font-size:13px;font-weight:bold;color:var(--hi);flex:1;}
+  .dpp-close{
+    background:var(--red);color:#fff;border:none;padding:3px 10px;border-radius:3px;
+    cursor:pointer;font-size:11px;font-family:inherit;
+  }
+  .dpp-close:hover{opacity:.85;}
+  .dpp-body{flex:1;overflow-y:auto;padding:4px;}
+  .dpp-body::-webkit-scrollbar{width:5px;}
+  .dpp-body::-webkit-scrollbar-thumb{background:var(--border);border-radius:3px;}
+  .dp-head{
+    height:30px;background:var(--panel2);display:flex;align-items:center;
+    padding:0 12px;font-size:11px;font-weight:bold;color:var(--hi);
+    border-bottom:1px solid var(--border);margin-top:4px;
+  }
+  .dp-stat{font-size:11px;color:var(--text);padding:8px 10px;background:var(--panel2);
+    margin:6px 4px;border-radius:4px;border-left:3px solid var(--hi);line-height:1.6;}
+  .dp-list{max-height:200px;overflow-y:auto;padding:4px;}
+  .dp-list::-webkit-scrollbar{width:5px;}
+  .dp-list::-webkit-scrollbar-thumb{background:var(--border);border-radius:3px;}
+  .dp-province{
+    background:var(--panel2);border:1px solid var(--border);border-left:3px solid var(--hi);
+    border-radius:3px;padding:5px 8px;margin:3px 0;font-size:11px;cursor:pointer;
+    transition:all .15s;
+  }
+  .dp-province:hover{background:#1a3a5c;transform:translateX(2px);}
+  .dp-province.dispatching{border-left-color:var(--yellow);}
+  .dp-province .pp-name{font-weight:bold;color:var(--text);}
+  .dp-province .pp-info{color:var(--dim);font-size:10px;margin-top:2px;}
+  .dp-province .pp-info .ready{color:var(--hi);}
+  .dp-province .pp-info .out{color:var(--yellow);}
+  /* 视图切换按钮（底部） */
+  .btn.view-national{background:#9b59b6;}
+  .btn.view-disaster{background:var(--blue);}
+  .btn.view-active{outline:2px solid var(--hi);outline-offset:1px;}
+  .dp-form{padding:10px;}
+  .dp-row{display:flex;align-items:center;gap:6px;margin-bottom:8px;font-size:11px;}
+  .dp-row label{width:80px;color:var(--dim);}
+  .dp-row input,.dp-row select{
+    flex:1;background:var(--panel2);border:1px solid var(--border);
+    color:var(--text);padding:4px 6px;border-radius:3px;font-size:11px;font-family:inherit;
+  }
+  .btn.deploy-calc{background:var(--hi);width:100%;margin-top:6px;}
+  .btn.deploy-dispatch{background:var(--red);width:100%;margin:10px;display:none;}
+  .btn.deploy-dispatch.show{display:block;}
+  .dp-result{
+    flex:1;margin:10px;background:var(--panel2);border:1px solid var(--border);
+    border-radius:4px;padding:10px;font-size:11px;overflow-y:auto;color:var(--dim);
+    line-height:1.7;
+  }
+  .dp-result .res-item{
+    background:var(--panel);border-left:3px solid var(--hi);padding:6px 8px;
+    margin:6px 0;border-radius:3px;color:var(--text);
+  }
+  .dp-result .res-item .ri-rank{color:var(--yellow);font-weight:bold;}
+  .dp-result .res-item .ri-dist{color:var(--hi);}
+  .dp-result .res-item .ri-eta{color:var(--orange);}
+  .map-legend{
+    position:absolute;bottom:10px;left:10px;background:rgba(15,52,96,.9);
+    padding:8px 12px;border-radius:4px;font-size:10px;border:1px solid var(--border);
+    z-index:100;line-height:1.8;
+  }
+  .map-legend .lg-item{display:flex;align-items:center;gap:6px;}
+  .map-legend .lg-dot{width:10px;height:10px;border-radius:50%;display:inline-block;}
+
+  /* 路线规划浮动面板 */
+  .route-panel{
+    position:absolute;top:70px;right:10px;width:260px;
+    background:rgba(15,52,96,.92);border:1px solid var(--border);border-radius:6px;
+    padding:10px;z-index:10;backdrop-filter:blur(4px);
+  }
+  .rp-title{
+    font-size:12px;font-weight:bold;color:var(--hi);margin-bottom:8px;
+    border-bottom:1px solid var(--border);padding-bottom:6px;
+  }
+  .rp-row{margin-bottom:6px;}
+  .rp-point{
+    display:flex;align-items:center;gap:6px;font-size:11px;
+    background:var(--panel2);padding:5px 8px;border-radius:4px;
+    border:1px solid var(--border);
+  }
+  .rp-dot{width:10px;height:10px;border-radius:50%;flex-shrink:0;border:2px solid #1a1a2e;}
+  .rp-start{background:#00ffcc;box-shadow:0 0 6px #00ffcc;}
+  .rp-end{background:#ef476f;box-shadow:0 0 6px #ef476f;}
+  .rp-label{flex:1;color:var(--text);font-size:10px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .rp-btn-set{
+    background:var(--panel);color:var(--hi);border:1px solid var(--hi);
+    font-size:10px;padding:2px 6px;border-radius:3px;cursor:pointer;font-family:inherit;
+  }
+  .rp-btn-set:hover{background:var(--hi);color:var(--bg);}
+  .rp-actions{display:flex;gap:6px;margin:8px 0;}
+  .rp-btn-plan{flex:1;background:var(--hi);font-size:11px;padding:6px;}
+  .rp-btn-clear{background:var(--panel2);color:var(--text);font-size:11px;padding:6px;border:1px solid var(--border);}
+  .rp-detail{
+    background:var(--panel2);border:1px solid var(--border);border-radius:4px;
+    padding:8px;font-size:10px;line-height:1.7;max-height:220px;overflow-y:auto;
+  }
+  .rp-detail .rd-distance{color:var(--hi);font-weight:bold;font-size:12px;}
+  .rp-detail .rd-time{color:var(--yellow);font-weight:bold;}
+  .rp-detail .rd-seg{padding:4px 0;border-bottom:1px dashed var(--border);}
+  .rp-detail .rd-seg:last-child{border-bottom:none;}
+  .rp-detail .rd-bad{color:var(--red);}
+  .rp-detail .rd-good{color:var(--hi);}
+  .rp-detail .rd-bypass{color:var(--orange);}
+
+  /* Key未配置提示遮罩 */
+  #key-mask{
+    position:fixed;inset:0;background:rgba(10,10,20,.95);z-index:9999;
+    display:flex;align-items:center;justify-content:center;color:var(--text);padding:40px;
+  }
+  #key-mask .box{max-width:560px;background:var(--panel2);border:1px solid var(--red);
+    border-radius:8px;padding:30px;line-height:1.8;font-size:13px;}
+  #key-mask h2{color:var(--red);margin-bottom:12px;}
+  #key-mask code{background:var(--bg);padding:2px 6px;border-radius:3px;color:var(--hi);}
+  #key-mask a{color:var(--hi);}
+</style>
+</head>
+<body>
+
+<!-- =========================================================================
+     二、HTML 结构：顶部标题 / 左中右三栏 / 底部按钮 / 状态栏
+     ========================================================================= -->
+<div id="header">
+  <div class="title">应急救援6机协同指挥可视化平台 V2.0</div>
+  <div class="right">
+    <span id="clock"></span>
+    <span class="dot">●</span>
+    <span style="color:var(--dim);">系统在线</span>
+  </div>
+</div>
+
+<div id="main">
+  <!-- 左栏：无人机编队状态 -->
+  <div id="left-panel">
+    <div class="panel-head">◆ 无人机编队状态监控</div>
+    <div class="summary" id="drone-summary"></div>
+    <div class="panel-body" id="drone-list"></div>
+  </div>
+
+  <!-- 中栏：3D地图 -->
+  <div id="center-map">
+    <!-- 编辑工具栏：切换绘制模式 -->
+    <div id="edit-toolbar">
+      <span class="tb-title">编辑模式：</span>
+      <button class="tb-btn" data-mode="none" onclick="setEditMode('none')">浏览</button>
+      <button class="tb-btn" data-mode="boundary" onclick="setEditMode('boundary')">绘制灾区边界</button>
+      <button class="tb-btn" data-mode="person" onclick="setEditMode('person')">添加被困人员</button>
+      <button class="tb-btn" data-mode="drone" onclick="setEditMode('drone')">添加无人机</button>
+      <button class="tb-btn" data-mode="road" onclick="setEditMode('road')">添加道路</button>
+      <button class="tb-btn" data-mode="brokenRoad" onclick="setEditMode('brokenRoad')">标记断道</button>
+      <button class="tb-btn" data-mode="firePoint" onclick="setEditMode('firePoint')">标记火点</button>
+      <button class="tb-btn" data-mode="rescueBase" onclick="setEditMode('rescueBase')">设置集合点</button>
+      <button class="tb-btn" data-mode="routeStart" onclick="setEditMode('routeStart')">路线起点</button>
+      <button class="tb-btn" data-mode="routeEnd" onclick="setEditMode('routeEnd')">路线终点</button>
+      <button class="tb-btn tb-survey" onclick="droneRoadSurvey()">道路勘探</button>
+      <button class="tb-btn tb-end" data-mode="endBoundary" onclick="finishBoundary()">完成边界</button>
+      <button class="tb-btn tb-end tb-clear" onclick="clearAllMarks()">清空全部</button>
+      <span class="tb-hint" id="edit-hint"></span>
+    </div>
+    <div id="map-container" style="width:100%;height:100%;"></div>
+    <div class="map-tip">3D地图：可拖拽旋转 · 滚轮缩放 · 右上角指南针复位</div>
+
+    <!-- 救援物资申请浮层面板 -->
+    <div id="supply-req-panel" class="supply-req-panel">
+      <div class="srp-head">
+        <span class="srp-title">◆ 救援物资申请</span>
+        <button class="srp-close" onclick="closeSupplyReqPanel()">✕</button>
+      </div>
+      <div class="srp-body" id="srp-body">
+        <div style="color:var(--dim);font-size:10px;text-align:center;padding:10px;">暂无物资申请记录<br>无人机搜救发现被困人员后将自动申请</div>
+      </div>
+    </div>
+
+
+    <!-- 添加人员弹窗 -->
+    <div id="person-modal" class="modal-mask" style="display:none;">
+      <div class="modal-box">
+        <div class="modal-title">添加被困人员</div>
+        <div class="modal-row">
+          <label>经度：</label><input type="text" id="m-lng" readonly />
+        </div>
+        <div class="modal-row">
+          <label>纬度：</label><input type="text" id="m-lat" readonly />
+        </div>
+        <div class="modal-row">
+          <label>短信回复：</label>
+          <select id="m-code">
+            <option value="1">1 - 受伤需医疗</option>
+            <option value="2">2 - 缺水</option>
+            <option value="3">3 - 缺粮</option>
+            <option value="4">4 - 被困待救援</option>
+          </select>
+        </div>
+        <div class="modal-btns">
+          <button class="btn-modal-ok" onclick="confirmAddPerson()">确认添加</button>
+          <button class="btn-modal-cancel" onclick="cancelAddPerson()">取消</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 无人机控制弹窗 -->
+    <div id="drone-modal" class="modal-mask" style="display:none;">
+      <div class="modal-box">
+        <div class="modal-title" id="dm-title">无人机指令</div>
+        <div class="modal-row">
+          <label>目标经度：</label><input type="text" id="dm-lng" readonly />
+        </div>
+        <div class="modal-row">
+          <label>目标纬度：</label><input type="text" id="dm-lat" readonly />
+        </div>
+        <div class="modal-row">
+          <label>飞行高度(m)：</label><input type="number" id="dm-alt" value="400" min="100" max="800" />
+        </div>
+        <div class="modal-btns">
+          <button class="btn-modal-ok" onclick="confirmDroneCommand()">派遣前往</button>
+          <button class="btn-modal-cancel" onclick="cancelDroneCommand()">取消</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 添加无人机弹窗 -->
+    <div id="add-drone-modal" class="modal-mask" style="display:none;">
+      <div class="modal-box">
+        <div class="modal-title">添加无人机</div>
+        <div class="modal-row">
+          <label>经度：</label><input type="text" id="am-lng" readonly />
+        </div>
+        <div class="modal-row">
+          <label>纬度：</label><input type="text" id="am-lat" readonly />
+        </div>
+        <div class="modal-row">
+          <label>机型：</label>
+          <select id="am-type">
+            <option value="固定翼">固定翼</option>
+            <option value="倾转垂直起降">倾转垂直起降</option>
+          </select>
+        </div>
+        <div class="modal-row">
+          <label>执行任务：</label>
+          <select id="am-task">
+            <option value="5G通信基站覆盖">5G通信基站覆盖</option>
+            <option value="地形与道路勘探">地形与道路勘探</option>
+            <option value="物资投送(模块化舱)">物资投送(模块化舱)</option>
+            <option value="森林灭火(模块化舱)">森林灭火(模块化舱)</option>
+            <option value="人员搜救">人员搜救</option>
+          </select>
+        </div>
+        <div class="modal-row">
+          <label>初始状态：</label>
+          <select id="am-status">
+            <option value="standby">待命</option>
+            <option value="work">作业中</option>
+          </select>
+        </div>
+        <div class="modal-btns">
+          <button class="btn-modal-ok" onclick="confirmAddDrone()">确认添加</button>
+          <button class="btn-modal-cancel" onclick="cancelAddDrone()">取消</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 标记火点弹窗 -->
+    <div id="fire-modal" class="modal-mask" style="display:none;">
+      <div class="modal-box">
+        <div class="modal-title">标记森林火点</div>
+        <div class="modal-row">
+          <label>经度：</label><input type="text" id="fp-lng" readonly />
+        </div>
+        <div class="modal-row">
+          <label>纬度：</label><input type="text" id="fp-lat" readonly />
+        </div>
+        <div class="modal-row">
+          <label>火势等级：</label>
+          <select id="fp-level">
+            <option value="1">1级 - 萌发期</option>
+            <option value="2">2级 - 发展期</option>
+            <option value="3">3级 - 猛烈期</option>
+          </select>
+        </div>
+        <div class="modal-btns">
+          <button class="btn-modal-ok" onclick="confirmFirePoint()">确认标记</button>
+          <button class="btn-modal-cancel" onclick="cancelFirePoint()">取消</button>
+        </div>
+      </div>
+    </div>
+    <!-- 路线规划浮动面板 -->
+    <div id="route-panel" class="route-panel">
+      <div class="rp-title">🚧 道路救援路线规划</div>
+      <div class="rp-row">
+        <div class="rp-point">
+          <span class="rp-dot rp-start"></span>
+          <span class="rp-label" id="rp-start-text">点击地图设置起点</span>
+          <button class="rp-btn-set" onclick="setEditMode('routeStart')">设置</button>
+        </div>
+      </div>
+      <div class="rp-row">
+        <div class="rp-point">
+          <span class="rp-dot rp-end"></span>
+          <span class="rp-label" id="rp-end-text">点击地图设置终点</span>
+          <button class="rp-btn-set" onclick="setEditMode('routeEnd')">设置</button>
+        </div>
+      </div>
+      <div class="rp-actions">
+        <button class="btn rp-btn-plan" onclick="planRescueRoute()">智能规划路线</button>
+        <button class="btn rp-btn-clear" onclick="clearRoute()">清除路线</button>
+      </div>
+      <div id="rp-detail" class="rp-detail">
+        <div style="color:var(--dim);font-size:10px;">设置起终点后点击「智能规划路线」<br>系统将自动避开塌方/断道路段</div>
+      </div>
+    </div>
+
+    <div class="map-legend">
+      <div class="lg-item"><span class="lg-dot" style="background:var(--red)"></span>受伤需医疗(1)</div>
+      <div class="lg-item"><span class="lg-dot" style="background:var(--yellow)"></span>缺水(2)</div>
+      <div class="lg-item"><span class="lg-dot" style="background:var(--orange)"></span>缺粮(3)</div>
+      <div class="lg-item"><span class="lg-dot" style="background:var(--blue)"></span>被困待救援(4)</div>
+      <div class="lg-item"><span style="color:var(--hi)">▲</span>无人机 · <span style="color:var(--hi)">→</span>救援路线</div>
+    </div>
+  </div>
+
+  <!-- 右栏：被困人员信息 -->
+  <div id="right-panel">
+    <div class="panel-head">◆ 被困人员信息面板</div>
+    <div class="tip">短信数字回复规则：1=受伤需医疗 2=缺水 3=缺粮 4=被困待救援</div>
+    <div class="plist-head">
+      <span>编号</span><span>回复</span><span>救援需求</span><span>精准经纬度</span>
+    </div>
+    <div class="panel-body" id="person-list"></div>
+    <div class="panel-head" style="border-top:1px solid var(--border);">◆ 救援导航信息</div>
+    <div class="detail empty" id="nav-detail">请在地图或列表中选中一名被困人员查看导航信息</div>
+  </div>
+</div>
+
+<!-- 底部功能按钮区 -->
+<div id="footer">
+  <div class="label">◆ 指挥调度功能区</div>
+  <div class="btns">
+    <button class="btn refresh" onclick="cmdRefresh()">实时刷新数据</button>
+    <button class="btn supply" onclick="cmdSupply()">调度物资投送</button>
+    <button class="btn fire" onclick="cmdFire()">调度森林灭火</button>
+    <button class="btn search" onclick="cmdSearch()">搜查被困人员</button>
+    <button class="btn national" onclick="cmdNational()">对接国家应急平台</button>
+    <button class="btn view-national view-active" id="btn-view-national" onclick="switchView('national')">全国部署视图</button>
+    <button class="btn view-disaster" id="btn-view-disaster" onclick="switchView('disaster')">灾区作业视图</button>
+    <button class="btn deploy" onclick="openDeployCenter()">部署指挥面板</button>
+  </div>
+</div>
+
+<!-- 全国分布式部署指挥面板（地图浮层侧栏，无独立地图） -->
+<div id="deploy-panel" class="deploy-panel" style="display:none;">
+  <div class="dpp-head">
+    <span class="dpp-title">◆ 全国部署指挥</span>
+    <button class="dpp-close" onclick="closeDeployCenter()">✕</button>
+  </div>
+  <div class="dpp-body">
+    <div class="dp-stat" id="dp-stat"></div>
+    <div class="dp-head">全国编队分布（按省份）</div>
+    <div class="dp-list" id="dp-list"></div>
+    <div class="dp-head">就近响应调度</div>
+    <div class="dp-form">
+      <div class="dp-row">
+        <label>灾害省份：</label>
+        <select id="dis-province"></select>
+      </div>
+      <div class="dp-row">
+        <label>灾害经度：</label>
+        <input type="number" id="dis-lng" step="0.0001" value="103.62" />
+      </div>
+      <div class="dp-row">
+        <label>灾害纬度：</label>
+        <input type="number" id="dis-lat" step="0.0001" value="30.91" />
+      </div>
+      <div class="dp-row">
+        <label>所需编队数：</label>
+        <input type="number" id="dis-need" value="2" min="1" max="10" />
+      </div>
+      <button class="btn deploy-calc" onclick="calcNearestFleet()">计算最近编队</button>
+    </div>
+    <div class="dp-head">推荐增援编队</div>
+    <div class="dp-result" id="dp-result">请在上方选择灾害省份或填写坐标后点击"计算最近编队"</div>
+    <button class="btn deploy-dispatch" onclick="dispatchReinforcement()">一键调度增援</button>
+  </div>
+</div>
+
+<!-- 状态栏 -->
+<div id="statusbar">系统就绪。提示：点击地图标记或右侧列表选择被困人员查看救援导航。</div>
+
+<!-- 非阻塞通知遮罩（替代alert） -->
+<div id="notice-overlay">
+  <div class="notice-box" id="notice-box">
+    <div class="notice-title" id="notice-title">提示</div>
+    <div class="notice-body" id="notice-body"></div>
+    <button class="notice-btn" id="notice-btn" onclick="closeNotice()">确定</button>
+  </div>
+</div>
+
+<!-- 非阻塞确认弹窗（替代confirm） -->
+<div id="confirm-overlay">
+  <div class="confirm-box">
+    <div class="confirm-title" id="confirm-title">确认操作</div>
+    <div class="confirm-body" id="confirm-body"></div>
+    <div class="confirm-btns">
+      <button class="confirm-btn-cancel" onclick="respondConfirm(false)">取消</button>
+      <button class="confirm-btn-ok" id="confirm-ok-btn" onclick="respondConfirm(true)">确认</button>
+    </div>
+  </div>
+</div>
+
+<!-- 无人机点击操作浮层菜单 -->
+<div id="drone-ctx-menu" class="drone-ctx-menu">
+  <div class="dcx-title" id="dcx-title">无人机操作</div>
+  <div class="dcx-item" id="dcx-select" onclick="ctxSelectDrone()">◉ 选中/派遣</div>
+  <div class="dcx-item" id="dcx-toggle" onclick="ctxToggleDrone()">↻ 切换作业状态</div>
+  <div class="dcx-item dcx-del" id="dcx-delete" onclick="ctxDeleteDrone()">✕ 删除（移除地图显示）</div>
+</div>
+
+<!-- Key未配置提示遮罩 -->
+<div id="key-mask" style="display:none;">
+  <div class="box">
+    <h2>⚠ 未检测到高德地图Key</h2>
+    <p>本平台3D地图基于高德地图JS API，需配置有效Key方可显示。</p>
+    <p style="margin:14px 0;"><b>配置步骤：</b></p>
+    <p>1. 访问 <a href="https://lbs.amap.com/" target="_blank">https://lbs.amap.com/</a> 注册并登录</p>
+    <p>2. 控制台 → 应用管理 → 创建新应用 → 添加Key（类型选"Web端JS API"）</p>
+    <p>3. 同步获取该Key对应的"安全密钥"</p>
+    <p>4. 用文本编辑器打开本HTML文件，替换代码顶部的：</p>
+    <p style="margin:8px 0 8px 20px;"><code>securityJsCode: 'AMAP_SECRET'</code> → 你的安全密钥</p>
+    <p style="margin:0 0 8px 20px;"><code>key=AMAP_KEY</code> → 你的Key</p>
+    <p>5. 保存后刷新浏览器即可看到3D地图</p>
+  </div>
+</div>
+
+<script>
+/* =========================================================================
+   三、模拟数据定义（贴合真实救援场景）
+   ========================================================================= */
+
+// 灾区中心坐标（四川都江堰青城山附近山区，具备真实3D地形与建筑）
+var DISASTER_CENTER = [103.6200, 30.9100];
+
+// 救援人员集结点
+var RESCUE_BASE = [103.6050, 30.8950];
+
+// 短信数字回复规则
+var NEED_CODE = {
+  '1':{need:'受伤需医疗',color:'#ef476f',icon:'✚'},
+  '2':{need:'缺水',      color:'#ffd166',icon:'◆'},
+  '3':{need:'缺粮',      color:'#ff9f43',icon:'■'},
+  '4':{need:'被困待救援',color:'#54a0ff',icon:'▲'}
+};
+
+// 6架无人机编队（初始为空，用户通过编辑模式或调度按钮添加）
+var drones = [];
+
+// 被困人员（初始为空，用户通过编辑模式手动添加）
+var persons = [];
+
+// 灾区边界（初始为空，用户通过"绘制灾区边界"工具手动绘制）
+var disasterBoundary = [];
+
+// 道路节点（初始为空，用户通过编辑模式添加）
+var roadNodes = [];
+// 断道路段索引
+var brokenSegments = [];
+
+// 森林火点（初始为空，点击"调度森林灭火"时由用户在地图上点击指定）
+var firePoint = null;
+
+// 无人机ID与人员ID自增计数器
+var nextDroneNum = {固定翼:0, 垂直翼:0};
+var nextPersonId = 1;
+
+// 全局状态
+var map = null;
+var selectedPerson = null;
+var droneMarkers = {};       // 无人机marker：{id: marker}
+var droneLabels = {};        // 无人机编号label：{id: textMarker}
+var personMarkers = {};      // 被困人员marker：{pid: marker}
+var personLabels = {};       // 被困人员编号label：{pid: textMarker}
+var routePolyline = null;
+var fireMarker = null;
+var fireLabel = null;
+var personScreenPos = {};
+
+// 路线规划相关变量
+var routeStart = null;                  // 路线起点 [lng,lat]
+var routeEnd = null;                    // 路线终点 [lng,lat]
+var routeStartMarker = null;            // 起点标记
+var routeEndMarker = null;              // 终点标记
+var plannedRoute = null;                // 已规划的路线数据 {path, distance, duration, segments}
+var rescueRoutePolyline = null;         // 救援路线折线
+var plannedDriving = null;              // 驾车路线规划实例
+
+// 人员搜救相关
+var searchDrones = [];                  // 正在执行搜救任务的无人机ID列表
+var searchScanRings = [];               // 搜救扫描圈DOM元素
+var searchScanTimers = {};              // 搜救扫描定时器 {droneId: intervalId}
+var signalTransferLabels = [];          // 5G信号传输指示标签DOM元素
+var supplyRequests = [];                // 救援物资申请记录
+var discoveredPersons = [];             // 搜救发现的被困人员ID（去重，避免重复申请）
+var lastPersonGenTick = {};             // 各搜救无人机上次自动生成人员的 tick（限速，避免一次性生成过多）
+var searchTickCounter = {};             // 各搜救无人机累计 tick 计数
+
+// 编辑模式状态
+var editMode = 'none';                  // none / boundary / person / road / brokenRoad / drone / routeStart / routeEnd
+var boundaryPoints = [];                // 正在绘制的边界点
+var boundaryPolygon = null;             // 边界多边形对象
+var boundaryMarkers = [];               // 边界顶点标记
+var pendingPersonPos = null;            // 待添加人员坐标
+var selectedDrone = null;               // 当前选中的无人机
+var pendingDroneTarget = null;          // 待派遣无人机目标坐标
+var pendingFirePos = null;              // 待确认火点坐标
+var roadNodeMarkers = [];               // 道路节点标记
+
+// 全国分布式编队数据（每省3-5套6机编队，标注省会坐标）
+// status: ready(就绪) / out(出动中)
+// composition: 每套编队的标准6机配置（4固定翼+2垂直起降）及任务分工
+var nationalFleets = [
+  {province:'北京市',     lng:116.41,lat:39.90, total:5,ready:5,out:0},
+  {province:'天津市',     lng:117.20,lat:39.13, total:3,ready:3,out:0},
+  {province:'河北省',     lng:114.50,lat:38.05, total:4,ready:4,out:0},
+  {province:'山西省',     lng:112.55,lat:37.87, total:3,ready:3,out:0},
+  {province:'内蒙古自治区', lng:111.75,lat:40.84, total:3,ready:2,out:1},
+  {province:'辽宁省',     lng:123.43,lat:41.80, total:4,ready:4,out:0},
+  {province:'吉林省',     lng:125.32,lat:43.82, total:3,ready:3,out:0},
+  {province:'黑龙江省',   lng:126.66,lat:45.74, total:3,ready:3,out:0},
+  {province:'上海市',     lng:121.47,lat:31.23, total:5,ready:5,out:0},
+  {province:'江苏省',     lng:118.78,lat:32.06, total:4,ready:4,out:0},
+  {province:'浙江省',     lng:120.16,lat:30.27, total:4,ready:3,out:1},
+  {province:'安徽省',     lng:117.28,lat:31.86, total:3,ready:3,out:0},
+  {province:'福建省',     lng:119.30,lat:26.08, total:3,ready:3,out:0},
+  {province:'江西省',     lng:115.89,lat:28.68, total:3,ready:3,out:0},
+  {province:'山东省',     lng:117.00,lat:36.65, total:4,ready:4,out:0},
+  {province:'河南省',     lng:113.65,lat:34.76, total:4,ready:3,out:1},
+  {province:'湖北省',     lng:114.30,lat:30.59, total:4,ready:4,out:0},
+  {province:'湖南省',     lng:112.98,lat:28.19, total:3,ready:3,out:0},
+  {province:'广东省',     lng:113.27,lat:23.13, total:5,ready:5,out:0},
+  {province:'广西壮族自治区',lng:108.32,lat:22.82, total:3,ready:3,out:0},
+  {province:'海南省',     lng:110.20,lat:20.04, total:3,ready:2,out:1},
+  {province:'重庆市',     lng:106.55,lat:29.56, total:4,ready:4,out:0},
+  {province:'四川省',     lng:104.07,lat:30.67, total:5,ready:4,out:1},  // 本平台所在省
+  {province:'贵州省',     lng:106.71,lat:26.60, total:3,ready:3,out:0},
+  {province:'云南省',     lng:102.83,lat:24.88, total:3,ready:3,out:0},
+  {province:'西藏自治区', lng:91.13, lat:29.65, total:3,ready:3,out:0},
+  {province:'陕西省',     lng:108.95,lat:34.27, total:3,ready:3,out:0},
+  {province:'甘肃省',     lng:103.83,lat:36.06, total:3,ready:3,out:0},
+  {province:'青海省',     lng:101.78,lat:36.62, total:3,ready:3,out:0},
+  {province:'宁夏回族自治区',lng:106.27,lat:38.47, total:3,ready:3,out:0},
+  {province:'新疆维吾尔自治区',lng:87.62,lat:43.83, total:3,ready:3,out:0},
+  {province:'台湾省',     lng:121.55,lat:25.03, total:3,ready:3,out:0},
+  {province:'香港特别行政区',lng:114.17,lat:22.32, total:3,ready:3,out:0},
+  {province:'澳门特别行政区',lng:113.55,lat:22.20, total:3,ready:3,out:0}
+];
+
+// 每套标准6机编队的机型与任务分工（4固定翼+2垂直起降）
+var FLEET_COMPOSITION = [
+  {id:'固定翼-01',type:'固定翼',       task:'5G通信基站覆盖(北区)'},
+  {id:'固定翼-02',type:'固定翼',       task:'5G通信基站覆盖(东区)'},
+  {id:'固定翼-03',type:'固定翼',       task:'5G通信基站覆盖(南区)'},
+  {id:'固定翼-04',type:'固定翼',       task:'地形与道路勘探'},
+  {id:'垂直翼-01',type:'倾转垂直起降', task:'物资投送(模块化舱)'},
+  {id:'垂直翼-02',type:'倾转垂直起降', task:'森林灭火(模块化舱)'}
+];
+
+// 部署指挥中心状态（整合到主地图，无独立地图实例）
+var fleetMarkers = {};           // 各省编队标记（主地图上）
+var fleetLabels = {};            // 各省编队省份标签（主地图上）
+var disasterMarker = null;       // 灾区点标记（增援调度用）
+var disasterLabel = null;        // 灾区点文字标签
+var reinforcementLines = [];     // 增援航线
+var recommendedFleets = [];      // 推荐增援编队列表
+var currentView = 'national';    // 当前视图：national(全国部署) / disaster(灾区作业)
+var fleetsDrawn = false;         // 全国编队节点是否已绘制
+
+// 【临时调试】全局错误捕获，把未捕获异常显示到状态栏，便于定位问题
+window.addEventListener('error', function(e){
+  var msg = '[全局错误] ' + (e.message||'未知') + ' @ ' + (e.filename||'') + ':' + (e.lineno||'');
+  try{
+    var sb=document.getElementById('statusbar');
+    if(sb){ sb.textContent = msg; sb.style.color='var(--red)'; }
+  }catch(_){}
+});
+window.addEventListener('unhandledrejection', function(e){
+  var msg = '[未处理Promise] ' + (e.reason && (e.reason.message||e.reason) || '未知');
+  try{
+    var sb=document.getElementById('statusbar');
+    if(sb){ sb.textContent = msg; sb.style.color='var(--red)'; }
+  }catch(_){}
+});
+
+// 非阻塞通知系统（替代alert，避免阻塞webview导致宿主React崩溃）
+function showNotice(title, body, type){
+  var box=document.getElementById('notice-box');
+  var ot=document.getElementById('notice-overlay');
+  document.getElementById('notice-title').textContent = title||'提示';
+  document.getElementById('notice-body').textContent = body||'';
+  box.className='notice-box'+(type?(' '+type):'');
+  ot.classList.add('show');
+}
+function closeNotice(){
+  document.getElementById('notice-overlay').classList.remove('show');
+}
+
+// 非阻塞确认弹窗（替代confirm，回调式异步确认）
+var _confirmCallback = null;
+function showConfirm(title, body, onConfirm, okLabel){
+  document.getElementById('confirm-title').textContent = title||'确认操作';
+  document.getElementById('confirm-body').textContent = body||'';
+  document.getElementById('confirm-ok-btn').textContent = okLabel||'确认';
+  _confirmCallback = onConfirm;
+  document.getElementById('confirm-overlay').classList.add('show');
+}
+function respondConfirm(ok){
+  document.getElementById('confirm-overlay').classList.remove('show');
+  var cb = _confirmCallback;
+  _confirmCallback = null;
+  if(cb){
+    try{ cb(!!ok); }catch(e){ console.warn('confirm回调异常:', e); }
+  }
+}
+
+// 无人机点击浮层菜单（在地图上点击无人机marker弹出）
+var _ctxDroneId = null;
+function showDroneCtxMenu(droneId, pixel){
+  _ctxDroneId = droneId;
+  var menu = document.getElementById('drone-ctx-menu');
+  var d = drones.find(function(x){return x.id===droneId;});
+  if(!d){ return; }
+  // 根据状态调整"切换"项文字
+  var toggleItem = document.getElementById('dcx-toggle');
+  if(d.status==='work'){ toggleItem.textContent='↻ 切换为待命'; }
+  else if(d.status==='standby'){ toggleItem.textContent='↻ 切换为作业中'; }
+  else { toggleItem.textContent='↻ 切换为待命'; }
+  // 定位到点击位置（pixel为相对于地图容器的像素坐标）
+  var mc = document.getElementById('map-container');
+  if(mc){
+    var rect = mc.getBoundingClientRect();
+    var px = pixel.x + 12;
+    var py = pixel.y + 12;
+    if(px + 160 > rect.width) px = pixel.x - 160;
+    if(py + 130 > rect.height) py = pixel.y - 130;
+    menu.style.left = px + 'px';
+    menu.style.top = py + 'px';
+  }
+  menu.classList.add('show');
+}
+function hideDroneCtxMenu(){
+  document.getElementById('drone-ctx-menu').classList.remove('show');
+  _ctxDroneId = null;
+}
+function ctxSelectDrone(){
+  var id = _ctxDroneId;
+  hideDroneCtxMenu();
+  if(id) selectDrone(id);
+}
+function ctxToggleDrone(){
+  var id = _ctxDroneId;
+  hideDroneCtxMenu();
+  if(id) toggleDroneStatus(id);
+}
+function ctxDeleteDrone(){
+  var id = _ctxDroneId;
+  hideDroneCtxMenu();
+  if(!id) return;
+  var d = drones.find(function(x){return x.id===id;});
+  if(!d) return;
+  showConfirm('删除无人机', '确认删除无人机 '+id+'（'+d.type+'）？\n\n将移除该无人机在3D地图上的所有显示内容（标记、编号、5G信号等），此操作不可恢复。',
+    function(ok){
+      if(ok){
+        // 清除地图标记
+        safeRemove(droneMarkers[id]);
+        safeRemove(droneLabels[id]);
+        delete droneMarkers[id];
+        delete droneLabels[id];
+        // 从数组中移除
+        var idx = drones.findIndex(function(x){return x.id===id;});
+        if(idx>=0) drones.splice(idx,1);
+        if(selectedDrone && selectedDrone.id===id){ selectedDrone = null; }
+        renderDronePanel();
+        setStatus('已删除无人机 '+id+'，已移除其在3D地图上的全部显示内容。','var(--dim)');
+      }
+    }, '删除');
+}
+
+
+/* =========================================================================
+   四、高德地图3D初始化
+   ========================================================================= */
+
+function initMap(){
+  // 检查Key是否已配置
+  if(typeof AMap === 'undefined'){
+    document.getElementById('key-mask').style.display='flex';
+    return;
+  }
+
+  map = new AMap.Map('map-container', {
+    viewMode:'3D',          // 3D视图模式（高德3D核心）
+    pitch:35,               // 倾斜角度（全国视图用较小俯角）
+    rotation:0,             // 旋转角度
+    zoom:4,                 // 缩放级别（全国视图）
+    center:[104.0, 35.5],   // 中心点（中国地理中心，展示全国部署）
+    mapStyle:'amap://styles/dark',  // 深色科技风样式
+    features:['bg','road','building','point'],  // 显示建筑
+    showLabel:true,
+    buildingAnimation:true  // 建筑加载动画
+  });
+
+  // 地图加载完成：自动绘制全国部署节点 + 救援集合点
+  map.on('complete', function(){
+    drawRescueBase();
+    drawNationalFleets();
+    fleetsDrawn = true;
+    // 禁用高德默认POI点击弹窗（防止出现含"详情"字样的默认InfoWindow干扰界面）
+    try{
+      map.setFeatures(['bg','road','building','point']);
+    }catch(e){}
+    setStatus('3D地图已加载，当前为「全国部署视图」：实时展示34省无人机编队分布。点击底部「灾区作业视图」可切换至灾区局部作业，或点击「部署指挥面板」进行跨省增援调度。','var(--hi)');
+  });
+
+  // 地图点击事件：根据编辑模式分发
+  map.on('click', function(e){
+    hideDroneCtxMenu();  // 点击地图空白处关闭无人机操作浮层
+    var lng = e.lnglat.getLng();
+    var lat = e.lnglat.getLat();
+    if(editMode === 'boundary'){
+      addBoundaryPoint(lng, lat);
+    } else if(editMode === 'person'){
+      pendingPersonPos = [lng, lat];
+      document.getElementById('m-lng').value = lng.toFixed(6);
+      document.getElementById('m-lat').value = lat.toFixed(6);
+      document.getElementById('person-modal').style.display = 'flex';
+    } else if(editMode === 'drone'){
+      pendingDroneTarget = [lng, lat];
+      document.getElementById('am-lng').value = lng.toFixed(6);
+      document.getElementById('am-lat').value = lat.toFixed(6);
+      document.getElementById('add-drone-modal').style.display = 'flex';
+    } else if(editMode === 'road'){
+      addRoadNode(lng, lat, false);
+    } else if(editMode === 'brokenRoad'){
+      addRoadNode(lng, lat, true);
+    } else if(editMode === 'firePoint'){
+      pendingFirePos = [lng, lat];
+      document.getElementById('fp-lng').value = lng.toFixed(6);
+      document.getElementById('fp-lat').value = lat.toFixed(6);
+      document.getElementById('fire-modal').style.display = 'flex';
+    } else if(editMode === 'rescueBase'){
+      setRescueBase(lng, lat);
+    } else if(editMode === 'routeStart'){
+      setRouteStart(lng, lat);
+    } else if(editMode === 'routeEnd'){
+      setRouteEnd(lng, lat);
+    } else if(selectedDrone){
+      // 已选中无人机时，点击地图即派遣目标
+      pendingDroneTarget = [lng, lat];
+      document.getElementById('dm-lng').value = lng.toFixed(6);
+      document.getElementById('dm-lat').value = lat.toFixed(6);
+      document.getElementById('dm-title').textContent = '派遣 ' + selectedDrone.id;
+      document.getElementById('drone-modal').style.display = 'flex';
+    }
+  });
+}
+
+/* =========================================================================
+   五、地图图层绘制
+   ========================================================================= */
+
+// 灾区边界（红色虚线多边形）
+function drawDisasterBoundary(){
+  var polygon = new AMap.Polygon({
+    path: disasterBoundary,
+    strokeColor:'#ef476f',
+    strokeWeight:2.5,
+    strokeStyle:'dashed',
+    strokeDasharray:[8,5],
+    fillColor:'#ef476f',
+    fillOpacity:0.05,
+    strokeOpacity:0.9
+  });
+  map.add(polygon);
+  // 边界标注
+  var label = new AMap.Text({
+    position: disasterBoundary[0],
+    text:'★ 灾区边界',
+    style:{'background':'rgba(15,52,96,.8)','border':'1px solid #ef476f',
+           'color':'#ef476f','font-size':'11px','font-weight':'bold','padding':'2px 6px'}
+  });
+  map.add(label);
+}
+
+// 道路与断道路段
+var roadLineMarkers = [];
+
+function drawRoads(){
+  // 先清除旧的道路线段
+  for(var k=0;k<roadLineMarkers.length;k++){
+    try{ map.remove(roadLineMarkers[k]); }catch(e){}
+  }
+  roadLineMarkers = [];
+  for(var i=0;i<roadNodes.length-1;i++){
+    var seg = [roadNodes[i], roadNodes[i+1]];
+    var isBroken = (brokenSegments.indexOf(i) >= 0);
+    var line = new AMap.Polyline({
+      path: seg,
+      strokeColor: isBroken ? '#ef476f' : '#c0c8d0',
+      strokeWeight: isBroken ? 3 : 4,
+      strokeStyle: isBroken ? 'dashed' : 'solid',
+      strokeOpacity: 0.9,
+      lineJoin:'round'
+    });
+    map.add(line);
+    roadLineMarkers.push(line);
+    if(isBroken){
+      // 断道X标记
+      var mid = [(seg[0][0]+seg[1][0])/2, (seg[0][1]+seg[1][1])/2];
+      var xMark = new AMap.Text({
+        position: mid,
+        text:'✖ 塌方/断道',
+        style:{'background':'rgba(239,71,111,.9)','color':'#fff',
+               'font-size':'10px','font-weight':'bold','padding':'2px 6px','border-radius':'3px'}
+      });
+      map.add(xMark);
+      roadLineMarkers.push(xMark);
+    }
+  }
+}
+
+// 救援集结点
+var rescueBaseMarker = null;
+
+function drawRescueBase(){
+  if(rescueBaseMarker){ map.remove(rescueBaseMarker); rescueBaseMarker=null; }
+  var content = '<div style="position:relative;">'
+    + '<div style="width:20px;height:20px;border-radius:50%;background:#00ffcc;'
+    + 'border:2px solid #1a1a2e;box-shadow:0 0 12px #00ffcc;animation:pulse 1.5s infinite;"></div>'
+    + '<div style="position:absolute;top:-22px;left:50%;transform:translateX(-50%);'
+    + 'background:rgba(15,52,96,.95);color:#00ffcc;font-size:10px;font-weight:bold;'
+    + 'padding:2px 6px;border-radius:3px;border:1px solid #00ffcc;white-space:nowrap;">'
+    + '★ 救援集合点</div></div>';
+  rescueBaseMarker = new AMap.Marker({
+    position: RESCUE_BASE,
+    content: content,
+    offset:new AMap.Pixel(-10,-10),
+    zIndex:150
+  });
+  map.add(rescueBaseMarker);
+}
+
+// 设置救援集合点（可重复点击修改位置）
+function setRescueBase(lng, lat){
+  RESCUE_BASE = [lng, lat];
+  drawRescueBase();
+  setEditMode('none');
+  setStatus('✓ 救援集合点已更新至：'+lng.toFixed(4)+', '+lat.toFixed(4)+'。', 'var(--hi)');
+  // 如果当前有选中的被困人员，更新导航信息
+  if(selectedPerson){ updateNavDetail(); }
+}
+
+// 无人机标记（三角形+状态色光晕+5G信号波动态效果）
+function drawDrones(){
+  for(var key in droneMarkers){ map.remove(droneMarkers[key]); delete droneMarkers[key]; }
+  droneMarkers = {};
+  for(var i=0;i<drones.length;i++){
+    var d = drones[i];
+    var color = d.status==='work' ? '#00ffcc' : (d.status==='standby' ? '#ffd166' : '#ef476f');
+    var glow = d.status==='work' ? 'box-shadow:0 0 10px '+color+';' : '';
+    // 5G信号覆盖标识：执行5G通信任务的作业中无人机显示信号波
+    var is5G = (d.task.indexOf('5G')>=0 || d.task.indexOf('通信')>=0) && d.status==='work';
+    var signalRings = '';
+    if(is5G){
+      for(var r=1;r<=3;r++){
+        var sz = 24 + r*18;
+        var delay = r*0.5;
+        signalRings += '<div style="position:absolute;top:50%;left:50%;'
+          + 'transform:translate(-50%,-50%);width:'+sz+'px;height:'+sz+'px;'
+          + 'border:1.5px solid '+color+';border-radius:50%;opacity:0;'
+          + 'animation:signalRing 2s infinite '+delay+'s ease-out;"></div>';
+      }
+      signalRings += '<div style="position:absolute;top:-18px;left:50%;'
+        + 'transform:translateX(-50%);background:rgba(0,255,204,.15);color:#00ffcc;'
+        + 'font-size:8px;font-weight:bold;padding:1px 4px;border-radius:8px;'
+        + 'border:1px solid #00ffcc;white-space:nowrap;">5G覆盖</div>';
+    }
+    var content = '<div style="position:relative;width:20px;height:20px;">'
+      + signalRings
+      + '<div style="position:absolute;top:0;left:50%;transform:translateX(-50%);'
+      + 'width:0;height:0;border-left:8px solid transparent;border-right:8px solid transparent;'
+      + 'border-bottom:14px solid '+color+';'+glow+'z-index:2;"></div>'
+      + '<div style="position:absolute;top:15px;left:50%;transform:translateX(-50%);'
+      + 'background:rgba(15,52,96,.85);color:'+color+';font-size:9px;padding:1px 3px;'
+      + 'border-radius:2px;white-space:nowrap;z-index:2;">'+d.id+'</div></div>';
+    var marker = new AMap.Marker({
+      position:[d.lng,d.lat],
+      content:content,
+      offset:new AMap.Pixel(-10,-7),
+      zIndex:120
+    });
+    // 绑定点击事件：弹出操作浮层菜单（选中/切换状态/删除）
+    (function(droneId){
+      marker.on('click', function(e){
+        // 阻止事件冒泡，避免触发地图空白点击
+        if(e && e.lnglat){ /* 高德marker click事件 */ }
+        // 获取相对于地图容器的像素坐标
+        var px = {x:0, y:0};
+        try{
+          if(e && e.pixel){
+            px = {x: e.pixel.x, y: e.pixel.y};
+          } else if(e && e.lnglat && map){
+            var p = map.lngLatToContainer(e.lnglat);
+            px = {x: p.getX(), y: p.getY()};
+          }
+        }catch(_){}
+        showDroneCtxMenu(droneId, px);
+      });
+    })(d.id);
+    map.add(marker);
+    droneMarkers[d.id] = marker;
+  }
+}
+
+// 被困人员标记（彩色圆点+编号，可点击）
+function drawPersons(){
+  // 清除旧标记（包括marker和label）
+  for(var key in personMarkers){
+    try{ map.remove(personMarkers[key]); }catch(e){}
+    delete personMarkers[key];
+  }
+  for(var key in personLabels){
+    try{ map.remove(personLabels[key]); }catch(e){}
+    delete personLabels[key];
+  }
+  personMarkers = {};
+  personLabels = {};
+  for(var i=0;i<persons.length;i++){
+    var p = persons[i];
+    var info = NEED_CODE[p.code];
+    var content = '<div class="person-marker" data-pid="'+p.pid+'" '
+      + 'style="width:16px;height:16px;border-radius:50%;background:'+info.color+';'
+      + 'border:2px solid #1a1a2e;cursor:pointer;transition:transform .2s;"></div>';
+    var marker = new AMap.Marker({
+      position:[p.lng,p.lat],
+      content:content,
+      offset:new AMap.Pixel(-8,-8),
+      zIndex:130
+    });
+    marker.on('click', (function(pid){ return function(){ selectPerson(pid); }; })(p.pid));
+    map.add(marker);
+    // 编号标签
+    var label = new AMap.Text({
+      position:[p.lng, p.lat],
+      text:p.pid,
+      offset:new AMap.Pixel(0,-14),
+      style:{'background':'rgba(15,52,96,.8)','color':'#e8e8e8','font-size':'9px',
+             'font-weight':'bold','padding':'1px 4px','border-radius':'2px','border':'none'}
+    });
+    map.add(label);
+    personMarkers[p.pid] = marker;
+    personLabels[p.pid] = label;
+  }
+}
+
+// 最优救援路线（绕过断道路段）
+function drawRescueRoute(person){
+  if(routePolyline){ map.remove(routePolyline); routePolyline=null; }
+  if(!person) return;
+  // 规划路径：集结点→可用道路节点（绕过断道）→目标
+  var route = [RESCUE_BASE];
+  for(var i=0;i<roadNodes.length-1;i++){
+    if(brokenSegments.indexOf(i) >= 0){
+      // 绕行点：垂直偏移
+      var a=roadNodes[i], b=roadNodes[i+1];
+      route.push([(a[0]+b[0])/2 + 0.006, (a[1]+b[1])/2 + 0.004]);
+    }else{
+      route.push(roadNodes[i+1]);
+    }
+  }
+  route.push([person.lng, person.lat]);
+  routePolyline = new AMap.Polyline({
+    path: route,
+    strokeColor:'#00ffcc',
+    strokeWeight:4,
+    strokeStyle:'dashed',
+    strokeDasharray:[8,6],
+    strokeOpacity:0.9,
+    lineJoin:'round',
+    lineCap:'round',
+    showDir:true   // 显示方向箭头（流动效果）
+  });
+  map.add(routePolyline);
+}
+
+// 选中高亮人员标记
+function highlightPerson(pid){
+  for(var key in personMarkers){
+    var m = personMarkers[key];
+    var p = persons.find(function(x){return x.pid===key;});
+    var info = NEED_CODE[p.code];
+    var isSel = (key===pid);
+    var size = isSel?22:16;
+    var ring = isSel?'box-shadow:0 0 0 3px #00ffcc, 0 0 12px #00ffcc;':'';
+    m.setContent('<div class="person-marker" data-pid="'+key+'" '
+      +'style="width:'+size+'px;height:'+size+'px;border-radius:50%;background:'+info.color+';'
+      +'border:2px solid #1a1a2e;cursor:pointer;'+ring+'transition:all .2s;"></div>');
+    m.setOffset(new AMap.Pixel(-size/2,-size/2));
+  }
+}
+
+/* =========================================================================
+   六、面板渲染（无人机/被困人员列表）
+   ========================================================================= */
+
+function renderDronePanel(){
+  // 统计
+  var work=drones.filter(function(d){return d.status==='work';}).length;
+  var standby=drones.filter(function(d){return d.status==='standby';}).length;
+  var fault=drones.filter(function(d){return d.status==='fault';}).length;
+  document.getElementById('drone-summary').innerHTML =
+    '编队规模：'+drones.length+'架 | 作业中：'+work+'架 | 待命：'+standby+'架 | 故障：'+fault+'架'
+    +'<br><span style="color:var(--yellow);font-size:10px;">提示：点击无人机卡片选中后，在地图上点击目标点即可派遣</span>';
+
+  // 卡片
+  var html='';
+  var statusMap={work:{t:'作业中',c:'work'},standby:{t:'待命',c:'standby'},fault:{t:'故障',c:'fault'}};
+  for(var i=0;i<drones.length;i++){
+    var d=drones[i];
+    var st=statusMap[d.status];
+    var battLow = d.battery<30 ? 'low':'';
+    var sel = (selectedDrone && selectedDrone.id===d.id) ? 'selected':'';
+    // 切换状态按钮文案
+    var toggleText = (d.status==='work') ? '待命' : '作业';
+    var toggleClass = (d.status==='work') ? 'btn-standby' : 'btn-work';
+    html+='<div class="drone-card '+st.c+' '+sel+'" onclick="selectDrone(\''+d.id+'\')">'
+      +'<div class="dc-row1"><span class="dc-id">'+d.id+'</span>'
+      +'<span class="dc-status '+st.c+'">'+st.t+'</span></div>'
+      +'<div class="dc-type">机型：'+d.type+'</div>'
+      +'<div class="dc-task">任务：'+d.task+'</div>'
+      +'<div class="dc-meta"><span class="'+battLow+'">电量 '+d.battery+'%</span>'
+      +'<span>高度 '+d.alt+'m</span></div>'
+      +(sel?'<div class="dc-ctrl-hint">已选中 · 点击地图设定目标</div>':'')
+      +'<div class="dc-actions" onclick="event.stopPropagation();">'
+      +'<button class="dc-btn dc-toggle '+toggleClass+'" onclick="toggleDroneStatus(\''+d.id+'\')">'+toggleText+'</button>'
+      +'<button class="dc-btn dc-delete" onclick="deleteDrone(\''+d.id+'\')">删除</button>'
+      +'</div>'
+      +'</div>';
+  }
+  document.getElementById('drone-list').innerHTML=html;
+}
+
+// 选中无人机（用于派遣控制）
+function selectDrone(droneId){
+  var d = drones.find(function(x){return x.id===droneId;});
+  if(!d) return;
+  // 再次点击同一架则取消
+  if(selectedDrone && selectedDrone.id===droneId){
+    selectedDrone = null;
+    setStatus('已取消无人机选择。','var(--dim)');
+  } else {
+    selectedDrone = d;
+    setStatus('已选中 '+d.id+'。请在地图上点击目标位置派遣该无人机前往。','var(--yellow)');
+    // 自动切回浏览模式，避免与编辑模式冲突
+    try{ setEditMode('none'); }catch(e){}
+  }
+  renderDronePanel();
+}
+
+// 切换无人机作业/待命状态（任务感知）
+function toggleDroneStatus(droneId){
+  var d = drones.find(function(x){return x.id===droneId;});
+  if(!d) return;
+  if(d.status === 'work'){
+    d.status = 'standby';
+    d.alt = 0;
+    // 若该无人机正在执行搜救，停止之
+    if(d.task === '人员搜救'){
+      stopPersonSearch(droneId);
+    }
+    setStatus(d.id+' 已切换为「待命」状态。','var(--yellow)');
+  } else if(d.status === 'standby'){
+    d.status = 'work';
+    d.alt = 400;
+    setStatus(d.id+' 已切换为「作业中」状态。','var(--hi)');
+    // 固定翼无人机 + 人员搜救任务 → 自动启动搜救流程
+    if(d.type === '固定翼' && d.task === '人员搜救'){
+      try{
+        startPersonSearch(d);
+        setStatus(d.id+' 已切换为「作业中」并自动启动人员搜救任务（调度区已显示「搜查被困人员」）。','var(--hi)');
+      }catch(e){
+        console.warn('启动搜救失败:', e);
+        showNotice('搜救启动失败', d.id+' 启动搜救任务时出错：'+(e&&e.message||e), 'warn');
+      }
+    }
+  } else if(d.status === 'fault'){
+    d.status = 'standby';
+    d.alt = 0;
+    setStatus(d.id+' 故障已排除，切换为「待命」状态。','var(--yellow)');
+  }
+  renderDronePanel();
+  try{ drawDrones(); }catch(e){}
+}
+
+// 删除无人机（通过右侧面板按钮触发）
+function deleteDrone(droneId){
+  var d = drones.find(function(x){return x.id===droneId;});
+  if(!d) return;
+  showConfirm('删除无人机', '确认删除无人机 '+droneId+'（'+d.type+'）？\n\n将移除该无人机在3D地图上的所有显示内容，此操作不可恢复。',
+    function(ok){
+      if(ok){
+        safeRemove(droneMarkers[droneId]);
+        safeRemove(droneLabels[droneId]);
+        delete droneMarkers[droneId];
+        delete droneLabels[droneId];
+        var idx = drones.findIndex(function(x){return x.id===droneId;});
+        if(idx>=0) drones.splice(idx,1);
+        if(selectedDrone && selectedDrone.id===droneId){ selectedDrone = null; }
+        renderDronePanel();
+        setStatus('已删除无人机 '+droneId+'，已移除其在3D地图上的全部显示内容。','var(--dim)');
+      }
+    }, '删除');
+}
+
+function renderPersonList(){
+  var html='';
+  for(var i=0;i<persons.length;i++){
+    var p=persons[i];
+    var info=NEED_CODE[p.code];
+    var sel = (selectedPerson && selectedPerson.pid===p.pid) ? 'sel':'';
+    html+='<div class="prow '+sel+'" data-pid="'+p.pid+'" onclick="selectPerson(\''+p.pid+'\')">'
+      +'<span class="p-id">'+p.pid+'</span>'
+      +'<span class="p-code" style="color:'+info.color+'">'+info.icon+p.code+'</span>'
+      +'<span>'+info.need+'</span>'
+      +'<span style="color:var(--dim);font-size:10px;">'+p.lng.toFixed(4)+', '+p.lat.toFixed(4)+'</span>'
+      +'</div>';
+  }
+  document.getElementById('person-list').innerHTML=html;
+}
+
+/* =========================================================================
+   七、交互：选中被困人员 → 导航详情
+   ========================================================================= */
+
+function selectPerson(pid){
+  var p = persons.find(function(x){return x.pid===pid;});
+  if(!p) return;
+  selectedPerson = p;
+  highlightPerson(pid);
+  renderPersonList();
+  drawRescueRoute(p);
+  updateNavDetail();
+  // 地图聚焦
+  map.setZoomAndCenter(15, [p.lng,p.lat]);
+  setStatus('已选中 '+p.pid+'（'+NEED_CODE[p.code].need+'），已规划最优救援路线。','var(--hi)');
+}
+
+function updateNavDetail(){
+  if(!selectedPerson){
+    var d=document.getElementById('nav-detail');
+    d.className='detail empty';
+    d.innerHTML='请在地图或列表中选中一名被困人员查看导航信息';
+    return;
+  }
+  var p=selectedPerson;
+  var info=NEED_CODE[p.code];
+  // 真实距离计算（高德内置）
+  var dist = AMap.GeometryUtil.distance(RESCUE_BASE, [p.lng,p.lat]);
+  // 模拟救援人员实时推进（波动）
+  var wave = Math.sin(Date.now()/1000*0.5)*30;
+  var realDist = Math.max(0, dist - 200 + wave);
+  var suggest = p.code==='1'?'紧急医疗救援':(p.code==='2'||p.code==='3'?'优先物资补给':'派遣搜救队破门');
+  var d=document.getElementById('nav-detail');
+  d.className='detail';
+  d.innerHTML =
+    '<div><span class="lbl">目标人员：</span>'+p.pid+'</div>'
+    +'<div><span class="lbl">救援需求：</span>'+info.icon+' '+info.need+'（短信回复 '+p.code+'）</div>'
+    +'<div><span class="lbl">目标坐标：</span>经度 '+p.lng.toFixed(4)+'° 纬度 '+p.lat.toFixed(4)+'°</div>'
+    +'<div><span class="lbl">救援人员位置：</span>救援集结点（经度 '+RESCUE_BASE[0].toFixed(4)+'° 纬度 '+RESCUE_BASE[1].toFixed(4)+'°）</div>'
+    +'<div style="color:var(--yellow);"><span class="lbl">实时距离：</span>'+Math.round(realDist)+' 米 （直线 '+Math.round(dist)+' 米）</div>'
+    +'<div><span class="lbl">调度建议：</span>'+suggest+'</div>';
+}
+
+/* =========================================================================
+   八、指挥调度功能按钮
+   ========================================================================= */
+
+function cmdRefresh(){
+  // 模拟无人机状态波动
+  for(var i=0;i<drones.length;i++){
+    var d=drones[i];
+    d.battery=Math.max(20,d.battery-Math.floor(Math.random()*3));
+    d.alt=Math.max(150,d.alt+Math.floor(Math.random()*40-20));
+    if(d.status==='work' && Math.random()<0.05) d.status='fault';
+    else if(d.status==='fault' && Math.random()<0.5) d.status='work';
+  }
+  renderDronePanel();
+  // 重绘无人机标记
+  for(var key in droneMarkers){ map.remove(droneMarkers[key]); }
+  droneMarkers={};
+  drawDrones();
+  updateNavDetail();
+  setStatus('数据已实时刷新：无人机状态、电量、高度及救援导航距离已更新。','var(--hi)');
+}
+
+function cmdSupply(){
+  try{
+    // 优先使用当前选中的被困人员作为投送目标；否则查找缺粮(3)或缺水(2)的人员
+    var target = (selectedPerson && persons.indexOf(selectedPerson)>=0) ? selectedPerson :
+                 (persons.find(function(x){return x.code==='3';}) ||
+                  persons.find(function(x){return x.code==='2';}));
+    if(!target){
+      setStatus('未找到缺粮/缺水的被困人员作为投送目标，请先添加被困人员。','var(--red)');
+    showNotice('无投送目标', '未找到缺粮/缺水的被困人员。\n\n请先点击工具栏"添加被困人员"，在地图上点击位置并选择需求类型(缺水/缺粮)添加人员。', 'warn');
+      return;
+    }
+    // 自动寻找距离目标最近的待命垂直起降无人机
+    var d = findNearestReadyDrone(target.lng, target.lat, function(x){return x.type==='倾转垂直起降';});
+    if(!d){
+      setStatus('无可用的待命垂直起降无人机执行物资投送，请先添加一架。','var(--red)');
+      showNotice('无可用投送无人机', '未找到待命的倾转垂直起降无人机。\n\n请先点击工具栏"添加无人机"，机型选择"倾转垂直起降"，任务选择"物资投送(模块化舱)"进行部署。', 'warn');
+      return;
+    }
+    var dist = AMap.GeometryUtil.distance([d.lng,d.lat],[target.lng,target.lat])/1000;
+    var eta = (dist/200*60).toFixed(0);
+    d.status='work';
+    d.task='物资投送(执行中)→'+target.pid+'('+NEED_CODE[target.code].need+')';
+    d.alt=300;
+    animateDroneMove(d, [target.lng,target.lat], function(arrivedDrone){
+      try{
+        addReliefPoint(target.lng, target.lat, 'supply', '物资投送点');
+        setStatus('✓ '+arrivedDrone.id+' 已抵达 '+target.pid+' 位置，物资投送作业已开始！','var(--hi)');
+        showNotice('无人机到达提醒', arrivedDrone.id+' 已抵达目的地：'+target.pid+'\n任务：物资投送（'+NEED_CODE[target.code].need+'）\n坐标：'+target.lng.toFixed(4)+', '+target.lat.toFixed(4)+'\n\n✓ 已在目的地生成物资投送救援点标记。', 'info');
+      }catch(e2){
+        console.warn('投送到达回调异常:', e2);
+        setStatus('无人机到达目标，但投送初始化异常：'+e2.message, 'var(--red)');
+      }
+    });
+    renderDronePanel();
+    drawDrones();
+    setStatus('已下达物资投送指令：最近的'+d.id+'（距'+dist.toFixed(1)+'km，约'+eta+'分钟）起飞，航向'+target.pid+'。','var(--yellow)');
+  showNotice('物资投送调度', '执行单位：'+d.id+'（倾转垂直起降）\n起始距离：'+dist.toFixed(1)+' km（约'+eta+'分钟）\n挂载舱：模块化物资舱（饮用水/食品/急救包）\n目标点：'+target.pid+' '+NEED_CODE[target.code].need+'\n目标坐标：'+target.lng.toFixed(4)+', '+target.lat.toFixed(4)+'\n\n✓ 已自动调度最近就绪无人机，3D地图可见飞行轨迹，到达后将自动生成投送点。');
+  }catch(e){
+    console.warn('cmdSupply异常:', e);
+    setStatus('调度物资投送时发生异常：'+e.message, 'var(--red)');
+    showNotice('调度异常', '调度物资投送时发生异常：'+e.message+'\n\n已自动恢复，可重新尝试。', 'error');
+  }
+}
+
+function cmdFire(){
+  try{
+    // 若未标记火点，引导用户先标记
+    if(!firePoint){
+      setStatus('请先在地图上标记森林火点：点击工具栏"标记火点"按钮，然后点击地图火点位置。','var(--yellow)');
+      setEditMode('firePoint');
+      showNotice('未标记火点', '请点击顶部工具栏的"标记火点"按钮，然后在地图上点击火点位置完成标记，之后再次点击"调度森林灭火"按钮派遣无人机。', 'warn');
+      return;
+    }
+    drawFirePoint('2');
+    // 自动寻找距离火点最近的待命垂直起降无人机
+    var d = findNearestReadyDrone(firePoint[0], firePoint[1], function(x){return x.type==='倾转垂直起降';});
+    if(!d){
+      setStatus('无可用的待命垂直起降无人机执行灭火任务，请先添加一架。','var(--red)');
+      showNotice('无可用灭火无人机', '未找到待命的倾转垂直起降无人机。\n\n请先点击工具栏"添加无人机"，机型选择"倾转垂直起降"，任务选择"森林灭火(模块化舱)"进行部署。', 'warn');
+      return;
+    }
+    var dist = AMap.GeometryUtil.distance([d.lng,d.lat],firePoint)/1000;
+    var eta = (dist/200*60).toFixed(0);
+    d.status='work';
+    d.task='森林灭火(执行中)→火点('+firePoint[0].toFixed(4)+','+firePoint[1].toFixed(4)+')';
+    d.alt=250;
+    animateDroneMove(d, firePoint, function(arrivedDrone){
+      try{
+        addReliefPoint(firePoint[0], firePoint[1], 'fire', '灭火作业点');
+        setStatus('✓ '+arrivedDrone.id+' 已抵达火点，灭火作业已启动！','var(--red)');
+        showNotice('无人机到达提醒', arrivedDrone.id+' 已抵达森林火点\n坐标：'+firePoint[0].toFixed(4)+', '+firePoint[1].toFixed(4)+'\n任务：森林灭火（灭火剂喷洒）\n\n✓ 已在目的地生成灭火作业救援点标记。', 'info');
+      }catch(e2){
+        console.warn('灭火到达回调异常:', e2);
+        setStatus('无人机到达火点，但后续作业初始化异常：'+e2.message, 'var(--red)');
+      }
+    });
+    renderDronePanel();
+    drawDrones();
+    setStatus('已下达森林灭火指令：最近的'+d.id+'（距'+dist.toFixed(1)+'km，约'+eta+'分钟）起飞，前往火点执行灭火作业。','var(--red)');
+  showNotice('森林灭火调度', '执行单位：'+d.id+'（倾转垂直起降）\n起始距离：'+dist.toFixed(1)+' km（约'+eta+'分钟）\n挂载舱：灭火剂模块化舱\n火点位置：'+firePoint[0].toFixed(4)+', '+firePoint[1].toFixed(4)+'\n作业方式：低空悬停→精准喷洒灭火剂→多架次循环\n\n✓ 已自动调度最近就绪无人机，3D地图可见飞行轨迹，到达后将自动生成灭火作业点。');
+  }catch(e){
+    console.warn('cmdFire异常:', e);
+    setStatus('调度灭火时发生异常：'+e.message, 'var(--red)');
+    showNotice('调度异常', '调度灭火时发生异常：'+e.message+'\n\n已自动恢复，可重新尝试。', 'error');
+  }
+}
+
+// 绘制火点标记
+function drawFirePoint(level){
+  if(!firePoint) return;
+  if(fireMarker){ try{ map.remove(fireMarker); }catch(e){} fireMarker=null; }
+  if(fireLabel){ try{ map.remove(fireLabel); }catch(e){} fireLabel=null; }
+  var size = 20 + parseInt(level)*8;
+  fireMarker = new AMap.Marker({
+    position: firePoint,
+    content:'<div style="width:'+size+'px;height:'+size+'px;border-radius:50%;'
+      +'background:radial-gradient(circle,#ef476f,#ff9f43);'
+      +'border:2px solid #ffd166;box-shadow:0 0 20px #ef476f;'
+      +'animation:blink 0.6s infinite alternate;"></div>',
+    offset:new AMap.Pixel(-size/2,-size/2),
+    zIndex:140
+  });
+  map.add(fireMarker);
+  fireLabel = new AMap.Text({
+    position: firePoint,
+    text:'🔥 森林火点(等级'+level+')',
+    offset:new AMap.Pixel(0,-size/2-8),
+    style:{'background':'rgba(239,71,111,.9)','color':'#fff','font-size':'11px',
+           'font-weight':'bold','padding':'2px 6px','border-radius':'3px'}
+  });
+  map.add(fireLabel);
+}
+
+function cmdNational(){
+  setStatus('正在对接国家应急指挥平台……上传灾区态势、编队状态、被困人员清单。','var(--blue)');
+  setTimeout(function(){
+    setStatus('✓ 国家应急平台对接成功：已同步6架无人机状态、8名被困人员信息、3D态势图与最优救援路线。','var(--blue)');
+  }, 1500);
+  showNotice('国家应急平台对接', '对接协议：应急指挥协同数据接口 v2.0\n上报内容：\n  • 灾区3D地形态势图\n  • 6架无人机编队实时状态\n  • 8名被困人员定位与需求清单\n  • 道路勘探结果与最优救援路线\n  • 物资投送/灭火作业执行记录\n\n✓ 数据已加密上传，国家级救援力量已纳入协同调度。', 'info');
+}
+
+/* =========================================================================
+   人员搜救任务（固定翼无人机专用）
+   - 切换任务自动变更状态为作业中
+   - 搜查被困人员位置（扫描动画）
+   - 5G通信传输被困人员信息至面板
+   - 申请救援物资
+   ========================================================================= */
+
+// 调度区「搜查被困人员」按钮入口
+function cmdSearch(){
+  // 1. 找出可执行搜救的固定翼无人机（任务=人员搜救）
+  var candidates = drones.filter(function(d){
+    return d.type === '固定翼' && d.task === '人员搜救';
+  });
+  if(candidates.length === 0){
+    showNotice('无可执行搜救的无人机',
+      '当前没有任务为「人员搜救」的固定翼无人机。\n\n请先添加无人机：\n  机型：固定翼\n  执行任务：人员搜救\n\n或修改已有固定翼无人机的任务为「人员搜救」后重试。', 'warn');
+    return;
+  }
+  // 2. 优先选已作业中的；否则选第一架待命的
+  var target = candidates.find(function(d){return d.status==='work';})
+           || candidates.find(function(d){return d.status==='standby';})
+           || candidates[0];
+  // 3. 若仍待命，自动切为作业中
+  if(target.status !== 'work'){
+    target.status = 'work';
+    target.alt = 400;
+    renderDronePanel();
+    try{ drawDrones(); }catch(e){}
+  }
+  // 4. 若该无人机已正在搜救，提示
+  if(searchDrones.indexOf(target.id) >= 0){
+    showNotice('搜救进行中', target.id+' 正在执行人员搜救任务，扫描已在进行。\n\n可继续添加其他无人机参与搜救，或点击该无人机在浮层菜单中停止搜救。', 'info');
+    return;
+  }
+  // 5. 启动搜救
+  try{
+    startPersonSearch(target);
+  }catch(e){
+    console.warn('cmdSearch启动搜救失败:', e);
+    showNotice('搜救启动失败', '启动搜救任务时出错：'+(e&&e.message||e), 'warn');
+  }
+}
+
+// ===== 灾区边界几何工具：边界框 / 点在多边形内判定 / 边界内随机点 =====
+
+// 计算灾区边界的外接矩形 {minLng,maxLng,minLat,maxLat}；边界为空时返回 null
+function getBoundaryBounds(){
+  if(!disasterBoundary || disasterBoundary.length < 3) return null;
+  var b = disasterBoundary;
+  var minLng=b[0][0], maxLng=b[0][0], minLat=b[0][1], maxLat=b[0][1];
+  for(var i=1;i<b.length;i++){
+    if(b[i][0]<minLng) minLng=b[i][0];
+    if(b[i][0]>maxLng) maxLng=b[i][0];
+    if(b[i][1]<minLat) minLat=b[i][1];
+    if(b[i][1]>maxLat) maxLat=b[i][1];
+  }
+  return {minLng:minLng, maxLng:maxLng, minLat:minLat, maxLat:maxLat};
+}
+
+// 射线法判定点是否在灾区边界多边形内
+function isPointInBoundary(lng, lat){
+  if(!disasterBoundary || disasterBoundary.length < 3) return false;
+  var poly = disasterBoundary;
+  var n = poly.length;
+  var inside = false;
+  var j = n - 1;
+  for(var i=0; i<n; i++){
+    var xi = poly[i][0], yi = poly[i][1];
+    var xj = poly[j][0], yj = poly[j][1];
+    var intersect = ((yi > lat) !== (yj > lat)) &&
+      (lng < (xj - xi) * (lat - yi) / ((yj - yi) || 1e-12) + xi);
+    if(intersect) inside = !inside;
+    j = i;
+  }
+  return inside;
+}
+
+// 在灾区边界内生成一个随机点（拒绝采样：在边界框内随机取点，直到命中多边形内）
+function randomPointInBoundary(){
+  var b = getBoundaryBounds();
+  if(!b) return null;
+  for(var tries=0; tries<30; tries++){
+    var lng = b.minLng + Math.random() * (b.maxLng - b.minLng);
+    var lat = b.minLat + Math.random() * (b.maxLat - b.minLat);
+    if(isPointInBoundary(lng, lat)) return [lng, lat];
+  }
+  // 兜底：返回边界框中心
+  return [(b.minLng + b.maxLng)/2, (b.minLat + b.maxLat)/2];
+}
+
+// 在无人机附近（且位于灾区内）自动生成一名被困人员，随机分配需求类别
+function generatePersonNearDrone(drone){
+  if(!drone) return null;
+  // 无灾区边界时降级：返回 null（沿用旧的"仅检测已有人员"逻辑）
+  if(!disasterBoundary || disasterBoundary.length < 3) return null;
+  var SEARCH_RADIUS = 0.006;  // 约 400m 内
+  for(var tries=0; tries<10; tries++){
+    var lng = drone.lng + (Math.random() - 0.5) * SEARCH_RADIUS * 2;
+    var lat = drone.lat + (Math.random() - 0.5) * SEARCH_RADIUS * 2;
+    if(!isPointInBoundary(lng, lat)) continue;
+    var code = String(Math.floor(Math.random() * 4) + 1);  // 1~4
+    var pid = 'P-' + String(nextPersonId).padStart(3,'0');
+    nextPersonId++;
+    var newPerson = {pid: pid, code: code, lng: lng, lat: lat};
+    persons.push(newPerson);
+    addPersonMarker(newPerson);
+    renderPersonList();
+    return newPerson;
+  }
+  return null;
+}
+
+// 查找最近的5G通信基站覆盖无人机（固定翼-01/02/03），返回 drone 对象或 null
+function findNearestBaseStationDrone(lng, lat){
+  var best = null, bestDist = Infinity;
+  for(var i=0; i<drones.length; i++){
+    var d = drones[i];
+    if(!d.task || d.task.indexOf('5G通信基站') < 0) continue;
+    var dx = d.lng - lng, dy = d.lat - lat;
+    var dist = Math.sqrt(dx*dx + dy*dy);
+    if(dist < bestDist){ bestDist = dist; best = d; }
+  }
+  return best;
+}
+
+// 启动单架无人机的人员搜救任务
+function startPersonSearch(drone){
+  if(!drone || !drone.id) return;
+  if(searchDrones.indexOf(drone.id) >= 0) return;  // 已在搜救
+  searchDrones.push(drone.id);
+
+  // 在地图上创建扫描圈DOM
+  var ring = document.createElement('div');
+  ring.className = 'search-scan-ring';
+  ring.style.width = '120px';
+  ring.style.height = '120px';
+  ring.style.marginLeft = '-60px';
+  ring.style.marginTop = '-60px';
+  document.getElementById('map-container').appendChild(ring);
+  searchScanRings.push({droneId: drone.id, el: ring});
+
+  // 状态栏提示
+  setStatus(drone.id+' 已启动人员搜救任务，正在扫描灾区…（调度区显示「搜查被困人员」执行中）','var(--hi)');
+
+  // 启动扫描定时器：每 1.2s 更新扫描圈位置 + 检测附近被困人员
+  var tick = 0;
+  searchTickCounter[drone.id] = 0;
+  searchScanTimers[drone.id] = setInterval(function(){
+    try{
+      tick++;
+      searchTickCounter[drone.id] = tick;
+      // 更新扫描圈位置（跟随无人机当前位置）
+      updateScanRingPosition(drone.id);
+      // 每 3 个 tick（约 3.6s）执行一次人员检测，避免过于频繁
+      if(tick % 3 === 0){
+        detectPersonsNearDrone(drone);
+      }
+      // 无人机在灾区边界范围内巡航（边界约束的搜救扫描）
+      if(drone.status === 'work'){
+        var STEP = 0.006;
+        // 若无人机已飞出灾区边界，则向边界中心方向回拉
+        if(disasterBoundary && disasterBoundary.length >= 3 && !isPointInBoundary(drone.lng, drone.lat)){
+          var b = getBoundaryBounds();
+          if(b){
+            var cx = (b.minLng + b.maxLng) / 2;
+            var cy = (b.minLat + b.maxLat) / 2;
+            var ddx = cx - drone.lng, ddy = cy - drone.lat;
+            var dd = Math.sqrt(ddx*ddx + ddy*ddy) || 1e-6;
+            drone.lng += (ddx / dd) * STEP;
+            drone.lat += (ddy / dd) * STEP;
+          }
+        } else {
+          // 在边界内：随机游走，但需验证下一位置仍在灾区内（越界则反向）
+          var nlng = drone.lng + (Math.random() - 0.5) * 0.008;
+          var nlat = drone.lat + (Math.random() - 0.5) * 0.008;
+          if(!disasterBoundary || disasterBoundary.length < 3 || isPointInBoundary(nlng, nlat)){
+            drone.lng = nlng;
+            drone.lat = nlat;
+          } else {
+            // 越界：朝边界中心方向小幅修正
+            var b2 = getBoundaryBounds();
+            if(b2){
+              drone.lng += ((b2.minLng + b2.maxLng)/2 - drone.lng) * 0.15;
+              drone.lat += ((b2.minLat + b2.maxLat)/2 - drone.lat) * 0.15;
+            }
+          }
+        }
+        try{ drawDrones(); }catch(e){}
+      } else {
+        // 状态已变更（非作业），停止搜救
+        stopPersonSearch(drone.id);
+      }
+    }catch(e){
+      console.warn('搜救扫描tick异常:', e);
+      stopPersonSearch(drone.id);
+    }
+  }, 1200);
+
+  var boundaryInfo = (disasterBoundary && disasterBoundary.length >= 3)
+    ? '灾区边界：'+disasterBoundary.length+'边形区域（巡航范围已锁定）\n'
+    : '⚠ 未绘制灾区边界，将沿用自由盘旋模式\n';
+  showNotice('人员搜救任务启动',
+    '执行无人机：'+drone.id+'（固定翼 · 人员搜救）\n'+
+    '起飞坐标：'+drone.lng.toFixed(4)+', '+drone.lat.toFixed(4)+'\n'+
+    '飞行高度：'+drone.alt+'m\n'+
+    boundaryInfo+
+    '任务模式：灾区内自动搜查\n\n'+
+    '✓ 无人机将在灾区边界范围内巡航扫描，自动标记伤员/缺水/缺粮/被困人员；\n'+
+    '✓ 发现目标后，5G基站无人机向其发送信号，无人机回传人员情况并申请救援物资。',
+    'info');
+}
+
+// 更新扫描圈位置（跟随无人机经纬度）
+function updateScanRingPosition(droneId){
+  var drone = drones.find(function(x){return x.id===droneId;});
+  if(!drone || !map) return;
+  var entry = searchScanRings.find(function(r){return r.droneId===droneId;});
+  if(!entry) return;
+  try{
+    var pixel = map.lngLatToContainer(new AMap.LngLat(drone.lng, drone.lat));
+    entry.el.style.left = pixel.getX() + 'px';
+    entry.el.style.top = pixel.getY() + 'px';
+    entry.el.style.display = 'block';
+  }catch(e){
+    entry.el.style.display = 'none';
+  }
+}
+
+// 检测无人机附近的被困人员（自动生成新目标 + 5G通信判定 + 信息传输 + 物资申请）
+function detectPersonsNearDrone(drone){
+  if(!drone) return;
+  var tick = searchTickCounter[drone.id] || 0;
+  // 1. 自动生成：每 ~6 个检测周期（约 21s）有概率在无人机附近（灾区内）发现一名新被困人员
+  //    限速：每架无人机至少间隔 6 个检测周期才能生成下一个
+  var canGen = (lastPersonGenTick[drone.id] === undefined) ||
+               (tick - lastPersonGenTick[drone.id] >= 6);
+  if(canGen && disasterBoundary && disasterBoundary.length >= 3){
+    // 60% 概率生成（模拟"扫到目标"）
+    if(Math.random() < 0.6){
+      var np = generatePersonNearDrone(drone);
+      if(np){
+        lastPersonGenTick[drone.id] = tick;
+        // 自动生成的人员立即进入"发现"流程（5G协同 + 物资申请）
+        if(discoveredPersons.indexOf(np.pid) < 0){
+          discoveredPersons.push(np.pid);
+          // 5G基站无人机协同：基站发送查询信号 → 搜救无人机回传人员情况
+          transferPersonInfoVia5G(drone, np);
+          // 自动申请救援物资
+          requestSupplyForPerson(drone, np);
+        }
+      }
+    }
+  }
+  // 2. 同时检测附近已存在的被困人员（兼容用户预先手动标记的场景）
+  var SEARCH_RADIUS = 0.008;  // 约 500m
+  for(var i=0; i<persons.length; i++){
+    var p = persons[i];
+    if(discoveredPersons.indexOf(p.pid) >= 0) continue;
+    var dx = p.lng - drone.lng;
+    var dy = p.lat - drone.lat;
+    var dist = Math.sqrt(dx*dx + dy*dy);
+    if(dist <= SEARCH_RADIUS){
+      discoveredPersons.push(p.pid);
+      transferPersonInfoVia5G(drone, p);
+      requestSupplyForPerson(drone, p);
+    }
+  }
+}
+
+// 5G基站无人机协同：基站查询 → 搜救机回传人员情况（地图动画 + 右侧面板同步）
+function transferPersonInfoVia5G(drone, person){
+  var info = NEED_CODE[person.code] || {need:'未知', color:'#8a8aa0', icon:'?'};
+  // 查找最近的5G通信基站覆盖无人机（固定翼-01/02/03）
+  var baseDrone = findNearestBaseStationDrone(person.lng, person.lat);
+
+  // ===== 阶段1：5G基站无人机 → 搜救无人机（发送查询信号） =====
+  if(baseDrone){
+    try{
+      var qLabel = document.createElement('div');
+      qLabel.className = 'signal-query-label';
+      qLabel.textContent = '📡 '+baseDrone.id+'→'+drone.id+'：查询目标状态';
+      // 定位到搜救无人机位置
+      var dpix = map.lngLatToContainer(new AMap.LngLat(drone.lng, drone.lat));
+      qLabel.style.left = (dpix.getX() - 50) + 'px';
+      qLabel.style.top = (dpix.getY() - 36) + 'px';
+      document.getElementById('map-container').appendChild(qLabel);
+      signalTransferLabels.push(qLabel);
+      (function(lb){
+        setTimeout(function(){ try{ lb.remove(); }catch(e){} }, 1600);
+      })(qLabel);
+    }catch(e){ console.warn('5G查询信号标签创建失败:', e); }
+  }
+
+  // ===== 阶段2：搜救无人机 → 5G基站无人机（回传人员情况） =====
+  // 延迟 900ms 显示回传（模拟先收到查询、再回复的时序）
+  setTimeout(function(){
+    try{
+      // 回传标签定位在搜救无人机附近
+      var dpix2 = map.lngLatToContainer(new AMap.LngLat(drone.lng, drone.lat));
+      var rLabel = document.createElement('div');
+      rLabel.className = 'signal-reply-label';
+      rLabel.textContent = '↩ '+drone.id+'→'+(baseDrone?baseDrone.id:'基站')+'：'+person.pid+' '+info.need+'（码'+person.code+'）';
+      rLabel.style.left = (dpix2.getX() - 60) + 'px';
+      rLabel.style.top = (dpix2.getY() + 18) + 'px';
+      document.getElementById('map-container').appendChild(rLabel);
+      signalTransferLabels.push(rLabel);
+      (function(lb){
+        setTimeout(function(){ try{ lb.remove(); }catch(e){} }, 1800);
+      })(rLabel);
+    }catch(e){ console.warn('5G回传信号标签创建失败:', e); }
+
+    // 在被困人员位置显示5G传输确认标签
+    try{
+      var label = document.createElement('div');
+      label.className = 'signal-transfer-label';
+      label.textContent = '5G ▸ '+person.pid+' '+info.need;
+      var pixel = map.lngLatToContainer(new AMap.LngLat(person.lng, person.lat));
+      label.style.left = (pixel.getX() - 30) + 'px';
+      label.style.top = (pixel.getY() - 30) + 'px';
+      document.getElementById('map-container').appendChild(label);
+      signalTransferLabels.push(label);
+      (function(lb){
+        setTimeout(function(){ try{ lb.remove(); }catch(e){} }, 1500);
+      })(label);
+    }catch(e){ console.warn('5G传输指示创建失败:', e); }
+  }, 900);
+
+  // ===== 同步到右侧被困人员信息面板（高亮闪烁该人员行） =====
+  try{
+    var row = document.querySelector('.prow[data-pid="'+person.pid+'"]');
+    if(row){
+      row.style.transition = 'background .3s';
+      row.style.background = 'rgba(0,255,204,.35)';
+      row.style.boxShadow = '0 0 0 2px rgba(0,255,204,.6)';
+      setTimeout(function(){
+        row.style.background = '';
+        row.style.boxShadow = '';
+      }, 2500);
+    }
+  }catch(e){}
+
+  // ===== 状态栏 + 通知 =====
+  var baseInfo = baseDrone
+    ? '协同基站机：'+baseDrone.id+'（'+baseDrone.task+'）\n'
+    : '协同基站机：未部署5G基站无人机\n';
+  setStatus('✓ '+drone.id+' 通过5G通信发现被困人员 '+person.pid+'（'+info.need+'），'+(baseDrone?('协同基站机 '+baseDrone.id+' 已收信。'):''),'var(--hi)');
+  showNotice('5G协同 · 搜救发现被困人员',
+    '执行搜救机：'+drone.id+'\n'+
+    baseInfo+
+    '发现目标：'+person.pid+'\n'+
+    '救援需求：'+info.need+'（回复码 '+person.code+'）\n'+
+    '精准坐标：'+person.lng.toFixed(4)+', '+person.lat.toFixed(4)+'\n'+
+    '通信链路：5G应急通信基站\n'+
+    '协同流程：'+(baseDrone?(baseDrone.id+' 发送查询信号 → '+drone.id+' 回传人员情况'):'搜救机直传面板')+'\n'+
+    '传输状态：✓ 已实时同步至右侧被困人员信息面板\n\n'+
+    '系统已根据需求类别自动申请救援物资，请查看「救援物资申请」面板。',
+    'info');
+}
+
+// 为被困人员申请救援物资
+function requestSupplyForPerson(drone, person){
+  var info = NEED_CODE[person.code] || {need:'未知'};
+  // 根据需求类别映射物资
+  var supplyMap = {
+    '1': {supply:'急救医疗包（含止血带/夹板/抗生素）', priority:'紧急', eta:'15分钟'},
+    '2': {supply:'饮用水（箱装5L×6）', priority:'高', eta:'25分钟'},
+    '3': {supply:'应急食品（压缩饼干/能量棒）', priority:'高', eta:'25分钟'},
+    '4': {supply:'破拆工具组+生命探测仪', priority:'紧急', eta:'20分钟'}
+  };
+  var sm = supplyMap[person.code] || {supply:'综合救援物资包', priority:'高', eta:'30分钟'};
+  var req = {
+    id: 'REQ-' + String(supplyRequests.length + 1).padStart(3, '0'),
+    pid: person.pid,
+    need: info.need,
+    supply: sm.supply,
+    priority: sm.priority,
+    eta: sm.eta,
+    droneId: drone.id,
+    lng: person.lng,
+    lat: person.lat,
+    status: 'pending',   // pending / approved / dispatched
+    time: new Date().toLocaleTimeString('zh-CN', {hour12:false})
+  };
+  supplyRequests.push(req);
+  renderSupplyReqPanel();
+  // 自动打开物资申请面板
+  document.getElementById('supply-req-panel').classList.add('show');
+}
+
+// 渲染物资申请面板
+function renderSupplyReqPanel(){
+  var body = document.getElementById('srp-body');
+  if(supplyRequests.length === 0){
+    body.innerHTML = '<div style="color:var(--dim);font-size:10px;text-align:center;padding:10px;">暂无物资申请记录<br>无人机搜救发现被困人员后将自动申请</div>';
+    return;
+  }
+  var html = '';
+  for(var i=0; i<supplyRequests.length; i++){
+    var r = supplyRequests[i];
+    var statusText = r.status==='pending' ? '⏳ 待审批' : (r.status==='approved' ? '✓ 已批准' : '✓ 已调度投送');
+    var statusClass = r.status==='pending' ? 'pending' : 'approved';
+    html += '<div class="srp-item">'
+      + '<div class="srp-pid">'+r.pid+' · '+r.id+'</div>'
+      + '<div class="srp-need">需求：'+r.need+'</div>'
+      + '<div>物资：'+r.supply+'</div>'
+      + '<div>优先级：'+r.priority+' · 预计'+r.eta+'送达</div>'
+      + '<div>申报单位：'+r.droneId+'</div>'
+      + '<div class="srp-status '+statusClass+'">'+statusText+' · '+r.time+'</div>';
+    if(r.status === 'pending'){
+      html += '<div class="srp-actions">'
+        + '<button class="srp-btn approve" onclick="approveSupplyReq(\''+r.id+'\')">批准</button>'
+        + '<button class="srp-btn dispatch" onclick="dispatchSupplyReq(\''+r.id+'\')">批准并调度</button>'
+        + '</div>';
+    } else if(r.status === 'approved'){
+      html += '<div class="srp-actions">'
+        + '<button class="srp-btn dispatch" onclick="dispatchSupplyReq(\''+r.id+'\')">调度投送</button>'
+        + '</div>';
+    }
+    html += '</div>';
+  }
+  body.innerHTML = html;
+}
+
+// 批准物资申请
+function approveSupplyReq(reqId){
+  var r = supplyRequests.find(function(x){return x.id===reqId;});
+  if(!r) return;
+  r.status = 'approved';
+  renderSupplyReqPanel();
+  setStatus('物资申请 '+r.id+'（'+r.pid+' '+r.need+'）已批准。','var(--hi)');
+}
+
+// 批准并调度物资投送
+function dispatchSupplyReq(reqId){
+  var r = supplyRequests.find(function(x){return x.id===reqId;});
+  if(!r) return;
+  r.status = 'dispatched';
+  renderSupplyReqPanel();
+  setStatus('物资申请 '+r.id+' 已批准并调度投送，正在派遣最近就绪无人机前往 '+r.pid+'。','var(--orange)');
+  // 复用现有物资投送逻辑：找到目标人员并触发调度
+  var target = persons.find(function(x){return x.pid===r.pid;});
+  if(target){
+    try{
+      // 选中目标人员并调用物资投送
+      selectedPerson = target;
+      drawPersons();
+      renderPersonList();
+      cmdSupply();
+    }catch(e){
+      console.warn('调度物资投送失败:', e);
+      showNotice('调度提示', '物资申请已批准，但自动调度投送时出错，请手动在列表中选中 '+r.pid+' 后点击「调度物资投送」。', 'warn');
+    }
+  } else {
+    showNotice('调度提示', '物资申请 '+r.id+' 已批准。\n目标人员 '+r.pid+' 已不在列表中，可能已被清理。\n可手动通过「调度物资投送」按钮派遣无人机。', 'info');
+  }
+}
+
+// 关闭物资申请面板
+function closeSupplyReqPanel(){
+  document.getElementById('supply-req-panel').classList.remove('show');
+}
+
+// 停止某架无人机的搜救任务
+function stopPersonSearch(droneId){
+  var idx = searchDrones.indexOf(droneId);
+  if(idx < 0) return;
+  searchDrones.splice(idx, 1);
+  // 清除定时器
+  if(searchScanTimers[droneId]){
+    clearInterval(searchScanTimers[droneId]);
+    delete searchScanTimers[droneId];
+  }
+  // 移除扫描圈DOM
+  for(var i=searchScanRings.length-1; i>=0; i--){
+    if(searchScanRings[i].droneId === droneId){
+      try{ searchScanRings[i].el.remove(); }catch(e){}
+      searchScanRings.splice(i, 1);
+    }
+  }
+  setStatus(droneId+' 人员搜救任务已停止。','var(--yellow)');
+}
+
+/* =========================================================================
+   九、无人机飞行动画（模拟调度后航迹）
+   ========================================================================= */
+
+function animateDroneMove(drone, target, onArrive){
+  var startLng=drone.lng, startLat=drone.lat;
+  var steps=60, i=0;
+  var timer=setInterval(function(){
+    try{
+      i++;
+      var t=i/steps;
+      var e=t<0.5 ? 2*t*t : -1+(4-2*t)*t;
+      drone.lng = startLng + (target[0]-startLng)*e;
+      drone.lat = startLat + (target[1]-startLat)*e;
+      if(droneMarkers[drone.id]){
+        droneMarkers[drone.id].setPosition([drone.lng,drone.lat]);
+      }
+      if(i>=steps){
+        clearInterval(timer);
+        if(onArrive){
+          try{ onArrive(drone); }catch(earr){ console.warn('到达回调异常:', earr); }
+        }
+      }
+    }catch(e){
+      console.warn('无人机飞行动画异常:', e, drone);
+      clearInterval(timer);
+    }
+  }, 50);
+}
+
+// 自动寻找距离目标点最近的就绪无人机
+function findNearestReadyDrone(targetLng, targetLat, filterFn){
+  var candidates = [];
+  for(var i=0;i<drones.length;i++){
+    var d=drones[i];
+    if(d.status!=='standby') continue;
+    if(filterFn && !filterFn(d)) continue;
+    var dist = AMap.GeometryUtil.distance([targetLng,targetLat], [d.lng,d.lat]);
+    candidates.push({drone:d, dist:dist});
+  }
+  candidates.sort(function(a,b){return a.dist-b.dist;});
+  return candidates.length>0 ? candidates[0].drone : null;
+}
+
+// 到达目的地后生成救援作业点标记（用于物资投送/灭火/5G基站等）
+function addReliefPoint(lng, lat, type, label){
+  var color = type==='fire' ? '#ffd166' : (type==='supply' ? '#54a0ff' : '#00ffcc');
+  var icon = type==='fire' ? '🧯' : (type==='supply' ? '📦' : '📡');
+  var content = '<div style="position:relative;">'
+    + '<div style="width:16px;height:16px;border-radius:50%;background:'+color+';'
+    + 'border:2px solid #1a1a2e;box-shadow:0 0 8px '+color+';"></div>'
+    + '<div style="position:absolute;top:-20px;left:50%;transform:translateX(-50%);'
+    + 'background:rgba(15,52,96,.95);color:'+color+';font-size:10px;font-weight:bold;'
+    + 'padding:2px 6px;border-radius:3px;border:1px solid '+color+';white-space:nowrap;">'
+    + icon + ' ' + label + '</div></div>';
+  var marker = new AMap.Marker({
+    position:[lng,lat],
+    content:content,
+    offset:new AMap.Pixel(-8,-8),
+    zIndex:130
+  });
+  map.add(marker);
+  return marker;
+}
+
+/* =========================================================================
+   十、定时刷新循环（时钟/导航距离/无人机微动）
+   ========================================================================= */
+
+function updateClock(){
+  var d=new Date();
+  var p=function(n){return n<10?'0'+n:n;};
+  document.getElementById('clock').textContent =
+    d.getFullYear()+'-'+p(d.getMonth()+1)+'-'+p(d.getDate())+' '+p(d.getHours())+':'+p(d.getMinutes())+':'+p(d.getSeconds());
+}
+
+function startLoop(){
+  updateClock();
+  setInterval(updateClock, 1000);
+  // 导航距离实时更新
+  setInterval(function(){ if(selectedPerson) updateNavDetail(); }, 1000);
+  // 作业中无人机微动（模拟盘旋）
+  setInterval(function(){
+    for(var i=0;i<drones.length;i++){
+      var d=drones[i];
+      if(d.status==='work' && d.alt>0){
+        d.lng += (Math.random()-0.5)*0.0008;
+        d.lat += (Math.random()-0.5)*0.0008;
+        if(droneMarkers[d.id]){
+          droneMarkers[d.id].setPosition([d.lng,d.lat]);
+        }
+      }
+    }
+  }, 2000);
+}
+
+function setStatus(text, color){
+  var s=document.getElementById('statusbar');
+  s.textContent=text;
+  s.style.color=color||'var(--dim)';
+}
+
+/* =========================================================================
+   十一、编辑模式：自定义灾区边界 / 添加被困人员 / 无人机派遣控制
+   ========================================================================= */
+
+// 切换编辑模式
+function setEditMode(mode){
+  try{
+    editMode = mode;
+    // 更新按钮高亮
+    var btns = document.querySelectorAll('.tb-btn[data-mode]');
+    for(var i=0;i<btns.length;i++){
+      btns[i].classList.remove('active');
+    }
+    var activeBtn = document.querySelector('.tb-btn[data-mode="'+mode+'"]');
+    if(activeBtn) activeBtn.classList.add('active');
+    // 显示/隐藏"完成边界"按钮
+    var endBtns = document.querySelectorAll('.tb-btn.tb-end');
+    for(var j=0;j<endBtns.length;j++){
+      if(mode==='boundary') endBtns[j].classList.add('show');
+      else endBtns[j].classList.remove('show');
+    }
+    // 提示文字
+    var hint = document.getElementById('edit-hint');
+    if(hint){
+      var hints = {
+        'boundary':   '点击地图添加边界顶点（≥3个），完成后点"完成边界"',
+        'person':     '点击地图选择人员位置，弹窗中选择需求类型',
+        'drone':      '点击地图选择无人机部署位置，弹窗中配置机型/任务/状态',
+        'road':       '依次点击地图添加道路节点（自动连成道路，至少2个点）',
+        'brokenRoad': '依次点击地图添加断道路段节点（红色虚线，表示塌方）',
+        'firePoint':  '点击地图标记森林火点位置，弹窗中选择火势等级',
+        'rescueBase': '点击地图设置救援集合点位置（人员/物资集结基地）',
+        'routeStart': '点击地图设置路线起点（救援出发位置）',
+        'routeEnd':   '点击地图设置路线终点（被困人员/灾区位置）',
+        'none':       ''
+      };
+      hint.textContent = hints[mode] || '';
+    }
+    // 切换到编辑模式时取消无人机选择
+    if(mode!=='none' && selectedDrone){
+      selectedDrone = null;
+      try{ renderDronePanel(); }catch(e){}
+    }
+    // 修改地图光标
+    var container = document.getElementById('map-container');
+    if(container){
+      container.style.cursor = (mode==='none') ? '' : 'crosshair';
+    }
+  }catch(e){
+    console.warn('setEditMode error:', e);
+    setStatus('切换编辑模式出错：'+e.message, 'var(--red)');
+  }
+}
+
+// 添加边界顶点
+function addBoundaryPoint(lng, lat){
+  boundaryPoints.push([lng, lat]);
+  // 添加顶点标记
+  var m = new AMap.Marker({
+    position:[lng,lat],
+    content:'<div style="width:10px;height:10px;border-radius:50%;background:#ef476f;'
+          +'border:2px solid #fff;box-shadow:0 0 6px #ef476f;"></div>',
+    offset:new AMap.Pixel(-5,-5),
+    zIndex:200
+  });
+  map.add(m);
+  boundaryMarkers.push(m);
+  // 实时更新预览多边形
+  if(boundaryPolygon){ map.remove(boundaryPolygon); }
+  if(boundaryPoints.length >= 2){
+    boundaryPolygon = new AMap.Polygon({
+      path: boundaryPoints,
+      strokeColor:'#ef476f',
+      strokeWeight:2,
+      strokeStyle:'dashed',
+      strokeDasharray:[6,4],
+      fillColor:'#ef476f',
+      fillOpacity:0.1,
+      strokeOpacity:0.9
+    });
+    map.add(boundaryPolygon);
+  }
+  setStatus('已添加边界顶点 '+boundaryPoints.length+' 个。继续点击或点"完成边界"结束。','var(--yellow)');
+}
+
+// 完成边界绘制
+function finishBoundary(){
+  if(boundaryPoints.length < 3){
+    setStatus('边界至少需要3个顶点，请继续点击地图添加。','var(--red)');
+    return;
+  }
+  // 移除顶点标记
+  for(var i=0;i<boundaryMarkers.length;i++){ try{ map.remove(boundaryMarkers[i]); }catch(e){} }
+  boundaryMarkers = [];
+  if(boundaryPolygon){ try{ map.remove(boundaryPolygon); }catch(e){} boundaryPolygon=null; }
+  // 更新灾区边界数据
+  disasterBoundary = boundaryPoints.slice();
+  boundaryPoints = [];
+  // 重绘边界（用 drawDisasterBoundary，只清除边界polygon，不动其他图层）
+  drawDisasterBoundary();
+  setEditMode('none');
+  setStatus('✓ 灾区边界已更新为 '+disasterBoundary.length+' 边形自定义区域。','var(--hi)');
+}
+
+// 确认添加被困人员
+function confirmAddPerson(){
+  if(!pendingPersonPos) return;
+  var code = document.getElementById('m-code').value;
+  var pid = 'P-' + String(nextPersonId).padStart(3,'0');
+  nextPersonId++;
+  var newPerson = {
+    pid: pid,
+    code: code,
+    lng: pendingPersonPos[0],
+    lat: pendingPersonPos[1]
+  };
+  persons.push(newPerson);
+  addPersonMarker(newPerson);  // 只添加新标记，避免重绘全部
+  renderPersonList();          // 刷新列表
+  cancelAddPerson();
+  setStatus('✓ 已添加被困人员 '+pid+'（'+NEED_CODE[code].need+'），地图与列表已同步。','var(--hi)');
+}
+
+// 添加单个人员标记（drawPersons的拆分，供增量添加使用）
+function addPersonMarker(p){
+  var info = NEED_CODE[p.code];
+  var content = '<div class="person-marker" data-pid="'+p.pid+'" '
+    + 'style="width:16px;height:16px;border-radius:50%;background:'+info.color+';'
+    + 'border:2px solid #1a1a2e;cursor:pointer;transition:transform .2s;"></div>';
+  var marker = new AMap.Marker({
+    position:[p.lng,p.lat],
+    content:content,
+    offset:new AMap.Pixel(-8,-8),
+    zIndex:130
+  });
+  marker.on('click', (function(pid){ return function(){ selectPerson(pid); }; })(p.pid));
+  map.add(marker);
+  var label = new AMap.Text({
+    position:[p.lng, p.lat],
+    text:p.pid,
+    offset:new AMap.Pixel(0,-14),
+    style:{'background':'rgba(15,52,96,.8)','color':'#e8e8e8','font-size':'9px',
+           'font-weight':'bold','padding':'1px 4px','border-radius':'2px','border':'none'}
+  });
+  map.add(label);
+  personMarkers[p.pid] = marker;
+  personLabels[p.pid] = label;
+}
+
+// 取消添加人员
+function cancelAddPerson(){
+  document.getElementById('person-modal').style.display='none';
+  pendingPersonPos = null;
+  setEditMode('none');
+}
+
+// 确认派遣无人机
+function confirmDroneCommand(){
+  if(!selectedDrone || !pendingDroneTarget) return;
+  var alt = parseInt(document.getElementById('dm-alt').value) || 400;
+  var d = selectedDrone;
+  d.status = 'work';
+  d.task = '前往指定目标(' + pendingDroneTarget[0].toFixed(4) + ',' + pendingDroneTarget[1].toFixed(4) + ')';
+  d.alt = alt;
+  // 飞行动画
+  animateDroneMove(d, pendingDroneTarget);
+  renderDronePanel();
+  cancelDroneCommand();
+  setStatus('✓ 已派遣 '+d.id+' 前往目标点，飞行高度 '+alt+'m，3D地图可见实时航迹。','var(--yellow)');
+}
+
+// 取消派遣无人机
+function cancelDroneCommand(){
+  document.getElementById('drone-modal').style.display='none';
+  pendingDroneTarget = null;
+}
+
+// 添加道路节点（normal=普通道路，broken=断道路段）
+function addRoadNode(lng, lat, isBroken){
+  var node = [lng, lat];
+  roadNodes.push(node);
+  if(isBroken && roadNodes.length>=2){
+    brokenSegments.push(roadNodes.length-2);  // 标记刚加入的这段为断道
+  }
+  // 绘制节点标记
+  var color = isBroken ? '#ef476f' : '#c0c8d0';
+  var m = new AMap.Marker({
+    position:[lng,lat],
+    content:'<div style="width:8px;height:8px;border-radius:50%;background:'+color+';'
+          +'border:2px solid #1a1a2e;"></div>',
+    offset:new AMap.Pixel(-4,-4),
+    zIndex:120
+  });
+  map.add(m);
+  roadNodeMarkers.push(m);
+  // 重绘道路
+  drawRoads();
+  var type = isBroken ? '断道路段' : '道路';
+  setStatus('已添加'+type+'节点 '+roadNodes.length+' 个。继续点击添加，或切换其他模式结束。','var(--yellow)');
+}
+
+// 确认添加无人机
+function confirmAddDrone(){
+  if(!pendingDroneTarget) return;
+  var type = document.getElementById('am-type').value;
+  var task = document.getElementById('am-task').value;
+  var status = document.getElementById('am-status').value;
+  // 自动编号
+  var prefix = (type==='固定翼') ? '固定翼' : '垂直翼';
+  nextDroneNum[prefix] = (nextDroneNum[prefix]||0)+1;
+  var id = prefix + '-' + String(nextDroneNum[prefix]).padStart(2,'0');
+  var newDrone = {
+    id:id, type:type, task:task, status:status,
+    battery:100, alt:(status==='work'?400:0),
+    lng:pendingDroneTarget[0], lat:pendingDroneTarget[1]
+  };
+  drones.push(newDrone);
+  drawDrones();
+  renderDronePanel();
+  cancelAddDrone();
+  setStatus('✓ 已添加无人机 '+id+'（'+type+'），任务：'+task+'。','var(--hi)');
+}
+
+// 取消添加无人机
+function cancelAddDrone(){
+  document.getElementById('add-drone-modal').style.display='none';
+  pendingDroneTarget = null;
+  setEditMode('none');
+}
+
+// 确认标记火点
+function confirmFirePoint(){
+  if(!pendingFirePos) return;
+  firePoint = pendingFirePos.slice();
+  var level = document.getElementById('fp-level').value;
+  drawFirePoint(level);
+  cancelFirePoint();
+  setStatus('✓ 已标记森林火点，火势等级：'+level+'级。可点击"调度森林灭火"派遣无人机前往。','var(--red)');
+}
+
+// 取消标记火点
+function cancelFirePoint(){
+  document.getElementById('fire-modal').style.display='none';
+  pendingFirePos = null;
+  setEditMode('none');
+}
+
+// ==================== 道路救援路线规划 ====================
+
+// 设置路线起点
+function setRouteStart(lng, lat){
+  routeStart = [lng, lat];
+  if(routeStartMarker){ map.remove(routeStartMarker); }
+  var content = '<div style="position:relative;">'
+    + '<div style="width:16px;height:16px;border-radius:50%;background:#00ffcc;'
+    + 'border:2px solid #1a1a2e;box-shadow:0 0 10px #00ffcc;animation:pulse 1.5s infinite;"></div>'
+    + '<div style="position:absolute;top:-22px;left:50%;transform:translateX(-50%);'
+    + 'background:#00ffcc;color:#1a1a2e;font-size:10px;font-weight:bold;'
+    + 'padding:2px 6px;border-radius:8px;white-space:nowrap;">🚩 起点</div></div>';
+  routeStartMarker = new AMap.Marker({
+    position:[lng,lat], content:content, offset:new AMap.Pixel(-8,-8), zIndex:160
+  });
+  map.add(routeStartMarker);
+  document.getElementById('rp-start-text').textContent = lng.toFixed(4) + ', ' + lat.toFixed(4);
+  setEditMode('none');
+  setStatus('✓ 路线起点已设置：'+lng.toFixed(4)+', '+lat.toFixed(4),'var(--hi)');
+  // 如果起点终点都有了，自动清除旧路线
+  if(rescueRoutePolyline){ clearRoute(); }
+}
+
+// 设置路线终点
+function setRouteEnd(lng, lat){
+  routeEnd = [lng, lat];
+  if(routeEndMarker){ map.remove(routeEndMarker); }
+  var content = '<div style="position:relative;">'
+    + '<div style="width:16px;height:16px;border-radius:50%;background:#ef476f;'
+    + 'border:2px solid #1a1a2e;box-shadow:0 0 10px #ef476f;animation:pulse 1.5s infinite;"></div>'
+    + '<div style="position:absolute;top:-22px;left:50%;transform:translateX(-50%);'
+    + 'background:#ef476f;color:#fff;font-size:10px;font-weight:bold;'
+    + 'padding:2px 6px;border-radius:8px;white-space:nowrap;">🎯 终点</div></div>';
+  routeEndMarker = new AMap.Marker({
+    position:[lng,lat], content:content, offset:new AMap.Pixel(-8,-8), zIndex:160
+  });
+  map.add(routeEndMarker);
+  document.getElementById('rp-end-text').textContent = lng.toFixed(4) + ', ' + lat.toFixed(4);
+  setEditMode('none');
+  setStatus('✓ 路线终点已设置：'+lng.toFixed(4)+', '+lat.toFixed(4),'var(--hi)');
+  if(rescueRoutePolyline){ clearRoute(); }
+}
+
+// 智能规划救援路线（基于高德驾车路线规划 + 断道避障）
+function planRescueRoute(){
+  if(!routeStart || !routeEnd){
+    showNotice('未设置路线', '请先设置路线起点和终点！\n\n点击右上角路线面板中的"设置"按钮，或使用编辑模式在地图上点击标记。', 'warn');
+    return;
+  }
+  setStatus('正在规划最优救援路线，分析道路通行状况…','var(--hi)');
+
+  // 安全执行规划（捕获插件加载/网络异常，避免异步回调错误导致白屏）
+  function doSearch(){
+    try{
+      var startLngLat = new AMap.LngLat(routeStart[0], routeStart[1]);
+      var endLngLat = new AMap.LngLat(routeEnd[0], routeEnd[1]);
+      plannedDriving.search(startLngLat, endLngLat, function(status, result){
+        try{
+          if(status === 'complete' && result && result.routes && result.routes.length > 0){
+            var route = result.routes[0];
+            analyzeAndDrawRoute(route);
+          } else {
+            drawFallbackRoute();
+          }
+        }catch(e2){
+          console.warn('路线分析异常:', e2);
+          drawFallbackRoute();
+        }
+      });
+    }catch(e){
+      console.warn('路线规划请求异常:', e);
+      drawFallbackRoute();
+    }
+  }
+
+  // 初始化驾车路线规划插件（需通过 AMap.plugin 异步加载，否则 new AMap.Driving 会抛错）
+  if(!plannedDriving){
+    if(typeof AMap.plugin === 'function'){
+      AMap.plugin(['AMap.Driving'], function(){
+        try{
+          // 关键：不传 map 参数，让 Driving 仅做路线计算，不自动渲染起终点marker/InfoWindow
+          // （自动渲染会弹出含"详情"链接的默认InfoWindow，干扰自定义界面）
+          plannedDriving = new AMap.Driving({
+            policy: AMap.DrivingPolicy.LEAST_TIME,
+            showTraffic: false,
+            extensions: 'all'
+          });
+          doSearch();
+        }catch(e){
+          console.warn('Driving插件实例化失败:', e);
+          drawFallbackRoute();
+        }
+      });
+    }else{
+      // 插件加载器不可用，直接走备用方案
+      drawFallbackRoute();
+    }
+  }else{
+    doSearch();
+  }
+}
+
+// 分析路线并检测断道，绘制避障后的救援路线
+function analyzeAndDrawRoute(route){
+  // 路线总距离(米)和时间(秒)
+  var totalDist = route.distance;
+  var totalTime = route.time;
+
+  // 获取路线步骤
+  var steps = route.steps || [];
+  var segments = [];
+  var blockedSegments = [];
+
+  // 模拟道路勘探：在步骤中随机检测"断道/塌方"（模拟无人机侦察结果）
+  // 真实场景由固定翼-04地形勘探无人机回传数据
+  for(var i=0;i<steps.length;i++){
+    var step = steps[i];
+    var roadName = step.road || ('无名道路'+(i+1));
+    var seg = {
+      index: i,
+      name: roadName,
+      distance: step.distance,
+      instruction: step.instruction,
+      path: step.path,
+      blocked: false,
+      bypass: null
+    };
+    // 模拟：约20%概率的路段被标记为"塌方/断道"（模拟无人机侦察发现）
+    if(steps.length > 2 && i>0 && i<steps.length-1 && Math.random() < 0.25){
+      seg.blocked = true;
+      blockedSegments.push(seg);
+    }
+    segments.push(seg);
+  }
+
+  // 保存路线数据
+  plannedRoute = {
+    distance: totalDist,
+    duration: totalTime,
+    segments: segments,
+    blockedCount: blockedSegments.length,
+    originalPath: route.path
+  };
+
+  // 绘制路线（正常路段青色，断道红色标注，绕行橙色）
+  drawRescueRoute(segments);
+  // 更新路线详情面板
+  updateRouteDetail(totalDist, totalTime, segments, blockedSegments);
+
+  setStatus('✓ 路线规划完成：总距离 '+(totalDist/1000).toFixed(2)+' km，'
+    +'预计 '+(totalTime/60).toFixed(0)+' 分钟，'
+    +'发现 '+blockedSegments.length+' 处断道，已自动规划绕行方案。', 'var(--hi)');
+}
+
+// 绘制救援路线（按路段分别着色：正常/断道/绕行）
+function drawRescueRoute(segments){
+  // 清除旧路线
+  if(rescueRoutePolyline){
+    for(var i=0;i<rescueRoutePolyline.length;i++){
+      try{ map.remove(rescueRoutePolyline[i]); }catch(e){}
+    }
+  }
+  rescueRoutePolyline = [];
+
+  // 坐标规范化：兼容 LngLat 对象 / [lng,lat] 数组，统一输出 [lng,lat]
+  function norm(pt){
+    if(!pt) return null;
+    if(Array.isArray(pt)) return [pt[0], pt[1]];
+    if(typeof pt.getLng === 'function') return [pt.getLng(), pt.getLat()];
+    if(pt.lng !== undefined) return [pt.lng, pt.lat];
+    return null;
+  }
+
+  for(var i=0;i<segments.length;i++){
+    var seg = segments[i];
+    // 规范化路径为 [lng,lat][] 数组，避免混用 LngLat 对象导致渲染异常
+    var rawPath = seg.path || [];
+    var normPath = [];
+    for(var pi=0;pi<rawPath.length;pi++){
+      var np = norm(rawPath[pi]);
+      if(np) normPath.push(np);
+    }
+    if(normPath.length < 1) continue;
+
+    var color = seg.blocked ? '#ef476f' : '#00ffcc';
+    var dash = seg.blocked ? 'dashed' : 'solid';
+    var weight = seg.blocked ? 5 : 4;
+
+    try{
+      var line = new AMap.Polyline({
+        path: normPath,
+        strokeColor: color,
+        strokeWeight: weight,
+        strokeStyle: dash,
+        strokeOpacity: 0.9,
+        lineJoin:'round',
+        zIndex:50
+      });
+      map.add(line);
+      rescueRoutePolyline.push(line);
+    }catch(e){ console.warn('绘制路线段失败:', e); }
+
+    // 断道路段添加绕行示意线（橙色虚线，模拟绕过）
+    if(seg.blocked && normPath.length >= 2){
+      var midIdx = Math.floor(normPath.length / 2);
+      var midPt = normPath[midIdx];
+      var p0 = normPath[0];
+      var p1 = normPath[normPath.length-1];
+      var dx = p1[0] - p0[0];
+      var dy = p1[1] - p0[1];
+      var len = Math.sqrt(dx*dx + dy*dy) || 0.001;
+      var perpX = -dy / len * 0.004;
+      var perpY = dx / len * 0.004;
+      var bypassPath = [
+        p0,
+        [midPt[0] + perpX, midPt[1] + perpY],
+        p1
+      ];
+      try{
+        var bypassLine = new AMap.Polyline({
+          path: bypassPath,
+          strokeColor: '#ff9f43',
+          strokeWeight: 3,
+          strokeStyle: 'dashed',
+          strokeOpacity: 0.8,
+          lineJoin:'round',
+          zIndex:49
+        });
+        map.add(bypassLine);
+        rescueRoutePolyline.push(bypassLine);
+      }catch(e){ console.warn('绘制绕行线失败:', e); }
+    }
+  }
+}
+
+// 更新路线详情面板
+function updateRouteDetail(dist, time, segments, blocked){
+  var html = '<div class="rd-distance">总距离：'+(dist/1000).toFixed(2)+' km</div>'
+    + '<div class="rd-time">预计时间：'+(time/60).toFixed(0)+' 分钟</div>'
+    + '<div style="margin:6px 0 4px;color:var(--text);font-weight:bold;font-size:11px;">途经路段：</div>';
+  for(var i=0;i<segments.length;i++){
+    var s = segments[i];
+    var distStr = s.distance >= 1000 ? (s.distance/1000).toFixed(1)+'km' : s.distance+'m';
+    var cls = s.blocked ? 'rd-bad' : 'rd-good';
+    var icon = s.blocked ? '⚠️' : '✓';
+    html += '<div class="rd-seg"><span class="'+cls+'">'+icon+' 第'+(i+1)+'段：'+s.name
+         + '（'+distStr+'）</span>';
+    if(s.blocked){
+      html += '<div class="rd-bypass" style="font-size:9px;margin-left:14px;">'
+           + '↪ 塌方/断道，已规划绕行路线（+约'+Math.round(s.distance*0.2)+'m）</div>';
+    }
+    html += '</div>';
+  }
+  if(blocked.length > 0){
+    html += '<div style="margin-top:6px;padding:4px;background:rgba(255,159,67,.1);'
+         + 'border:1px solid var(--orange);border-radius:3px;color:var(--orange);font-size:9px;">'
+         + '🔍 数据来源：固定翼-04 地形勘探无人机实时回传</div>';
+  }
+  document.getElementById('rp-detail').innerHTML = html;
+}
+
+// 规划失败时的备用直线方案
+function drawFallbackRoute(){
+  if(!routeStart || !routeEnd) return;
+  var dist = AMap.GeometryUtil.distance(routeStart, routeEnd);
+  if(rescueRoutePolyline){
+    for(var i=0;i<rescueRoutePolyline.length;i++){
+      try{ map.remove(rescueRoutePolyline[i]); }catch(e){}
+    }
+  }
+  rescueRoutePolyline = [];
+  var line = new AMap.Polyline({
+    path:[routeStart, routeEnd],
+    strokeColor:'#00ffcc', strokeWeight:4, strokeStyle:'dashed',
+    strokeOpacity:0.8, lineJoin:'round'
+  });
+  map.add(line);
+  rescueRoutePolyline.push(line);
+  document.getElementById('rp-detail').innerHTML =
+    '<div class="rd-distance">直线距离：'+(dist/1000).toFixed(2)+' km</div>'
+   +'<div style="color:var(--yellow);margin-top:6px;">⚠ 无法获取路网数据，显示直线距离</div>';
+  setStatus('⚠ 路线规划：无法获取路网数据，已显示直线距离','var(--yellow)');
+}
+
+// 清除路线
+function clearRoute(){
+  if(rescueRoutePolyline){
+    for(var i=0;i<rescueRoutePolyline.length;i++){
+      try{ map.remove(rescueRoutePolyline[i]); }catch(e){}
+    }
+    rescueRoutePolyline = null;
+  }
+  plannedRoute = null;
+  document.getElementById('rp-detail').innerHTML =
+    '<div style="color:var(--dim);font-size:10px;">设置起终点后点击「智能规划路线」<br>系统将自动避开塌方/断道路段</div>';
+  setStatus('路线已清除','var(--dim)');
+}
+
+// 无人机道路勘探（派遣固定翼无人机沿道路飞行侦察路况）
+function droneRoadSurvey(){
+  // 找固定翼-04（地形勘探），没有就找第一架固定翼
+  var surveyDrone = drones.find(function(d){ return d.task.indexOf('勘探')>=0 && d.status==='standby'; })
+    || drones.find(function(d){ return d.type==='固定翼' && d.status==='standby'; });
+  if(!surveyDrone){
+    setStatus('无可用固定翼无人机执行道路勘探任务，请先添加。','var(--red)');
+    showNotice('无勘探无人机', '未找到待命的固定翼无人机。\n\n请先点击工具栏"添加无人机"，机型选"固定翼"，任务选"地形与道路勘探"进行部署。', 'warn');
+    return;
+  }
+  if(!routeStart || !routeEnd){
+    showNotice('未设置路线', '请先设置路线起点和终点，勘探无人机将沿路线飞行侦察路况。', 'warn');
+    return;
+  }
+  surveyDrone.status = 'work';
+  surveyDrone.task = '道路勘探(执行中)→侦察道路通行状况';
+  surveyDrone.alt = 500;
+  renderDronePanel();
+  setStatus('已派遣 '+surveyDrone.id+' 执行道路勘探任务，无人机正在沿路线飞行侦察路况…','var(--hi)');
+
+  // 模拟沿路线飞行（从起点飞向终点，沿途检测路况）
+  var path = [routeStart, routeEnd];
+  var startLng = surveyDrone.lng, startLat = surveyDrone.lat;
+  var steps = 80, i = 0;
+  var timer = setInterval(function(){
+    try{
+      i++;
+      var t = i/steps;
+      var e = t<0.5 ? 2*t*t : -1+(4-2*t)*t;
+      var curLng = startLng + (routeEnd[0]-startLng)*e;
+      var curLat = startLat + (routeEnd[1]-startLat)*e;
+      surveyDrone.lng = curLng;
+      surveyDrone.lat = curLat;
+      if(droneMarkers[surveyDrone.id]){
+        droneMarkers[surveyDrone.id].setPosition([curLng,curLat]);
+      }
+      if(i >= steps){
+        clearInterval(timer);
+        setStatus('✓ '+surveyDrone.id+' 道路勘探完成，正在生成避障路线…','var(--hi)');
+        // 勘探完成，自动触发路线规划（含断道检测）
+        try{ planRescueRoute(); }
+        catch(pe){ console.warn('勘探后路线规划异常:', pe); drawFallbackRoute(); }
+      }
+    }catch(err){
+      console.warn('勘探飞行动画异常:', err);
+      clearInterval(timer);
+      setStatus('勘探过程出现异常，已停止。错误：'+err.message, 'var(--red)');
+    }
+  }, 60);
+}
+
+// 安全清除单个地图覆盖物（统一错误处理）
+function safeRemove(item){
+  if(!item || !map) return;
+  try{ map.remove(item); }catch(e){ /* 静默失败 */ }
+}
+
+// 清空全部标记（恢复空白地图）- 全安全版本
+function clearAllMarks(){
+  showConfirm('清空全部标记', '确认清空全部标记？\n\n此操作将移除所有灾区边界、人员、无人机、道路、火点（保留全国部署编队节点与救援集合点）。',
+    function(ok){
+      if(ok){ doClearAllMarks(); }
+    }, '清空');
+}
+
+function doClearAllMarks(){
+  try{
+    // 第一阶段：清除所有交互状态
+    selectedPerson = null;
+    selectedDrone = null;
+    boundaryPoints = [];
+    pendingPersonPos = null;
+    pendingDroneTarget = null;
+    pendingFirePos = null;
+    editMode = 'none';
+
+    // 第二阶段：清除所有地图覆盖物
+    // 1) 无人机标记
+    for(var k1 in droneMarkers){ safeRemove(droneMarkers[k1]); }
+    droneMarkers = {};
+    for(var k1b in droneLabels){ safeRemove(droneLabels[k1b]); }
+    droneLabels = {};
+
+    // 2) 被困人员标记 + label
+    for(var k2 in personMarkers){ safeRemove(personMarkers[k2]); }
+    personMarkers = {};
+    for(var k2b in personLabels){ safeRemove(personLabels[k2b]); }
+    personLabels = {};
+
+    // 3) 灾区边界
+    safeRemove(boundaryPolygon);
+    boundaryPolygon = null;
+    for(var i3=0;i3<boundaryMarkers.length;i3++){ safeRemove(boundaryMarkers[i3]); }
+    boundaryMarkers = [];
+
+    // 4) 道路
+    for(var i4=0;i4<roadNodeMarkers.length;i4++){ safeRemove(roadNodeMarkers[i4]); }
+    roadNodeMarkers = [];
+    for(var i4b=0;i4b<roadLineMarkers.length;i4b++){ safeRemove(roadLineMarkers[i4b]); }
+    roadLineMarkers = [];
+
+    // 5) 火点
+    safeRemove(fireMarker);
+    fireMarker = null;
+    safeRemove(fireLabel);
+    fireLabel = null;
+
+    // 6) 单人选人救援路线
+    safeRemove(routePolyline);
+    routePolyline = null;
+
+    // 7) 路线规划：起点、终点、规划路线
+    safeRemove(routeStartMarker);
+    safeRemove(routeEndMarker);
+    routeStartMarker = null;
+    routeEndMarker = null;
+    routeStart = null;
+    routeEnd = null;
+    if(rescueRoutePolyline){
+      for(var i7=0;i7<rescueRoutePolyline.length;i7++){ safeRemove(rescueRoutePolyline[i7]); }
+    }
+    rescueRoutePolyline = null;
+    plannedRoute = null;
+    // 销毁驾车规划实例（如果有）
+    if(plannedDriving){
+      try{ plannedDriving.clear(); }catch(e){}
+      plannedDriving = null;
+    }
+
+    // 8) 全国部署增援调度产物（保留各省编队节点，仅清增援航线/灾区点/飞行动画）
+    safeRemove(disasterMarker); disasterMarker = null;
+    safeRemove(disasterLabel); disasterLabel = null;
+    for(var i8=0;i8<reinforcementLines.length;i8++){ safeRemove(reinforcementLines[i8]); }
+    reinforcementLines = [];
+    for(var k8 in flyingDroneMarkers){ safeRemove(flyingDroneMarkers[k8]); }
+    flyingDroneMarkers = {};
+    recommendedFleets = [];
+    if(fleetInfoWindow){ try{ fleetInfoWindow.close(); }catch(e){} }
+    var dpRes = document.getElementById('dp-result');
+    if(dpRes){ dpRes.innerHTML='请在上方选择灾害省份或填写坐标后点击"计算最近编队"'; }
+    var dpBtn = document.querySelector('.btn.deploy-dispatch');
+    if(dpBtn){ dpBtn.classList.remove('show'); }
+
+    // 8.5) 人员搜救相关资源：停止所有搜救定时器、移除扫描圈、5G标签、物资申请记录
+    for(var sk in searchScanTimers){
+      try{ clearInterval(searchScanTimers[sk]); }catch(e){}
+      delete searchScanTimers[sk];
+    }
+    searchDrones = [];
+    for(var i85=0; i85<searchScanRings.length; i85++){
+      try{ searchScanRings[i85].el.remove(); }catch(e){}
+    }
+    searchScanRings = [];
+    for(var i85b=0; i85b<signalTransferLabels.length; i85b++){
+      try{ signalTransferLabels[i85b].remove(); }catch(e){}
+    }
+    signalTransferLabels = [];
+    supplyRequests = [];
+    discoveredPersons = [];
+    lastPersonGenTick = {};
+    searchTickCounter = {};
+    var srp = document.getElementById('supply-req-panel');
+    if(srp){ srp.classList.remove('show'); }
+    renderSupplyReqPanel();
+
+
+    // 第三阶段：重置数据数组
+    drones = [];
+    persons = [];
+    disasterBoundary = [];
+    roadNodes = [];
+    brokenSegments = [];
+    firePoint = null;
+    nextDroneNum = {固定翼:0, 垂直翼:0};
+    nextPersonId = 1;
+
+    // 第四阶段：刷新UI面板
+    try{ renderDronePanel(); }catch(e){}
+    try{ renderPersonList(); }catch(e){}
+
+    // 第五阶段：重置各面板文字
+    try{
+      var det = document.getElementById('detail-content');
+      if(det){
+        det.innerHTML = '<div class="detail-empty">请在地图或列表中选中被困人员查看救援导航信息</div>';
+      }
+    }catch(e){}
+    try{
+      var rs = document.getElementById('rp-start-text');
+      var re = document.getElementById('rp-end-text');
+      var rd = document.getElementById('rp-detail');
+      if(rs) rs.textContent = '点击地图设置起点';
+      if(re) re.textContent = '点击地图设置终点';
+      if(rd) rd.innerHTML = '<div style="color:var(--dim);font-size:10px;">设置起终点后点击「智能规划路线」<br>系统将自动避开塌方/断道路段</div>';
+    }catch(e){}
+
+    // 第六阶段：确保救援集合点还在（如果被误清则重绘）
+    try{
+      if(!rescueBaseMarker){ drawRescueBase(); }
+    }catch(e){
+      try{ drawRescueBase(); }catch(e2){}
+    }
+
+    // 第七阶段：重置工具栏按钮高亮
+    try{
+      var btns = document.querySelectorAll('.tb-btn[data-mode]');
+      for(var i=0;i<btns.length;i++){ btns[i].classList.remove('active'); }
+      var browseBtn = document.querySelector('.tb-btn[data-mode="none"]');
+      if(browseBtn) browseBtn.classList.add('active');
+      var hint = document.getElementById('edit-hint');
+      if(hint) hint.textContent = '';
+      var endBtns = document.querySelectorAll('.tb-btn.tb-end');
+      for(var j=0;j<endBtns.length;j++){ endBtns[j].classList.remove('show'); }
+    }catch(e){}
+
+    // 第八阶段：恢复地图光标
+    try{
+      var mc = document.getElementById('map-container');
+      if(mc) mc.style.cursor = '';
+    }catch(e){}
+
+    setStatus('已清空全部标记，地图恢复空白状态。','var(--yellow)');
+  }catch(e){
+    console.warn('clearAllMarks 致命错误:', e);
+    setStatus('清空操作出现异常，但地图仍可继续使用。错误：'+e.message, 'var(--red)');
+  }
+}
+
+/* =========================================================================
+   十二、全国分布式部署指挥中心（已整合到主地图）
+   ========================================================================= */
+
+// 视图切换：全国部署视图 / 灾区作业视图
+function switchView(mode){
+  if(!map) return;
+  if(mode==='national'){
+    currentView='national';
+    map.setZoomAndCenter(4, [104.0, 35.5]);
+    map.setPitch(35);
+    map.setRotation(0);
+    // 确保全国编队节点已绘制
+    if(!fleetsDrawn || Object.keys(fleetMarkers).length===0){
+      drawNationalFleets();
+      fleetsDrawn=true;
+    }
+    document.getElementById('btn-view-national').classList.add('view-active');
+    document.getElementById('btn-view-disaster').classList.remove('view-active');
+    setStatus('已切换至「全国部署视图」：展示34省无人机编队实时分布，可点击省份节点查看详情或打开部署指挥面板进行跨省增援调度。','var(--hi)');
+  }else if(mode==='disaster'){
+    currentView='disaster';
+    map.setZoomAndCenter(14, DISASTER_CENTER);
+    map.setPitch(50);
+    map.setRotation(-20);
+    document.getElementById('btn-view-disaster').classList.add('view-active');
+    document.getElementById('btn-view-national').classList.remove('view-active');
+    setStatus('已切换至「灾区作业视图」：可在灾区局部进行边界绘制、人员标记、无人机调度、道路勘探等作业。全国编队节点仍保留在地图上（缩小即可见）。','var(--hi)');
+  }
+}
+
+// 打开部署指挥面板（浮层侧栏，地图保持显示）
+function openDeployCenter(){
+  var panel=document.getElementById('deploy-panel');
+  panel.style.display='flex';
+  // 初始化省份下拉
+  var sel = document.getElementById('dis-province');
+  sel.innerHTML='';
+  for(var i=0;i<nationalFleets.length;i++){
+    var opt = document.createElement('option');
+    opt.value = i;
+    opt.textContent = nationalFleets[i].province;
+    sel.appendChild(opt);
+  }
+  // 默认选四川（本平台所在省）
+  sel.value = 22;
+  document.getElementById('dis-lng').value = nationalFleets[22].lng.toFixed(4);
+  document.getElementById('dis-lat').value = nationalFleets[22].lat.toFixed(4);
+  sel.onchange = function(){
+    var idx = parseInt(sel.value);
+    document.getElementById('dis-lng').value = nationalFleets[idx].lng.toFixed(4);
+    document.getElementById('dis-lat').value = nationalFleets[idx].lat.toFixed(4);
+  };
+  // 渲染列表与统计
+  renderFleetList();
+  // 确保全国视图（编队节点可见）
+  if(currentView!=='national'){ switchView('national'); }
+  else if(!fleetsDrawn || Object.keys(fleetMarkers).length===0){
+    drawNationalFleets();
+    fleetsDrawn=true;
+  }
+  setStatus('部署指挥面板已打开。可在面板中选择灾害省份/坐标，点击"计算最近编队"进行跨省增援调度，地图实时显示航线与飞行动画。','var(--hi)');
+}
+
+// 关闭部署指挥面板（仅隐藏面板，地图与编队节点保留）
+function closeDeployCenter(){
+  document.getElementById('deploy-panel').style.display='none';
+  if(fleetInfoWindow){ try{ fleetInfoWindow.close(); }catch(e){} }
+  setStatus('部署指挥面板已关闭。全国编队节点仍显示在地图上，可随时重新打开面板。','var(--dim)');
+}
+
+// 渲染全国编队列表与统计
+function renderFleetList(){
+  var totalFleet=0, totalReady=0, totalOut=0;
+  for(var i=0;i<nationalFleets.length;i++){
+    totalFleet += nationalFleets[i].total;
+    totalReady += nationalFleets[i].ready;
+    totalOut += nationalFleets[i].out;
+  }
+  document.getElementById('dp-stat').innerHTML =
+    '覆盖省份：'+nationalFleets.length+'个<br>'+
+    '编队总数：'+totalFleet+'套（每套6机）<br>'+
+    '就绪：'+totalReady+'套 | 出动中：'+totalOut+'套<br>'+
+    '无人机总数：'+(totalFleet*6)+'架';
+  var html='';
+  for(var i=0;i<nationalFleets.length;i++){
+    var f=nationalFleets[i];
+    var dispatching = f.out>0 ? 'dispatching':'';
+    html+='<div class="dp-province '+dispatching+'" onclick="focusFleet('+i+')">'
+      +'<div class="pp-name">'+f.province+'</div>'
+      +'<div class="pp-info">编队 '+f.total+'套 | '
+      +'<span class="ready">就绪 '+f.ready+'</span> | '
+      +'<span class="out">出动 '+f.out+'</span></div></div>';
+  }
+  document.getElementById('dp-list').innerHTML=html;
+}
+
+// 绘制全国各省编队节点（在主地图上显示飞机数量，点击查看详情）
+function drawNationalFleets(){
+  // 先清除旧节点与标签
+  clearFleetMarkers();
+  fleetMarkers={};
+  fleetLabels={};
+  if(!map) return;
+  for(var i=0;i<nationalFleets.length;i++){
+    var f=nationalFleets[i];
+    var planeCount = f.total * 6;  // 每套编队6架
+    var color = f.ready>0 ? '#00ffcc' : '#ffd166';
+    var size = 14 + Math.min(f.total,5)*3;  // 编队越多圆点越大
+    // 节点内容：圆点 + 飞机数量文字
+    var content = '<div style="position:relative;cursor:pointer;">'
+      +'<div style="width:'+size+'px;height:'+size+'px;border-radius:50%;'
+      +'background:'+color+';border:2px solid #1a1a2e;box-shadow:0 0 8px '+color+';"></div>'
+      +'<div style="position:absolute;top:-14px;left:50%;transform:translateX(-50%);'
+      +'background:rgba(15,52,96,.95);color:'+color+';font-size:10px;font-weight:bold;'
+      +'padding:1px 4px;border-radius:8px;border:1px solid '+color+';white-space:nowrap;">'
+      +planeCount+'架</div>'
+      +'</div>';
+    var marker = new AMap.Marker({
+      position:[f.lng,f.lat],
+      content:content,
+      offset:new AMap.Pixel(-size/2,-size/2),
+      zIndex:110
+    });
+    (function(idx){ marker.on('click', function(){ showFleetDetail(idx); }); })(i);
+    map.add(marker);
+    // 省份标签
+    var label = new AMap.Text({
+      position:[f.lng, f.lat],
+      text:f.province.replace('省','').replace('市','').replace('自治区','').replace('壮族','').replace('回族','').replace('维吾尔','').replace('特别行政区',''),
+      offset:new AMap.Pixel(0,size/2+2),
+      style:{'background':'rgba(15,52,96,.7)','color':'#e8e8e8','font-size':'9px',
+             'padding':'1px 3px','border-radius':'2px','border':'none'}
+    });
+    map.add(label);
+    fleetMarkers[f.province]=marker;
+    fleetLabels[f.province]=label;
+  }
+}
+
+// 清除全国编队节点与标签
+function clearFleetMarkers(){
+  if(!map) return;
+  for(var key in fleetMarkers){ try{ map.remove(fleetMarkers[key]); }catch(e){} }
+  for(var key in fleetLabels){ try{ map.remove(fleetLabels[key]); }catch(e){} }
+}
+
+// 显示某省编队详情（信息窗体，在主地图上）
+var fleetInfoWindow = null;
+function showFleetDetail(idx){
+  var f = nationalFleets[idx];
+  // 构建详情HTML：编队概览 + 机型/任务分布表
+  var html = '<div style="min-width:280px;max-width:320px;font-family:微软雅黑;color:#e8e8e8;">'
+    +'<div style="font-size:14px;font-weight:bold;color:#00ffcc;margin-bottom:8px;border-bottom:1px solid #2a3a5c;padding-bottom:6px;">'
+    +f.province+' · 编队详情</div>'
+    +'<div style="font-size:11px;line-height:1.8;color:#8a8aa0;">'
+    +'编队总数：<b style="color:#e8e8e8;">'+f.total+'套</b><br>'
+    +'飞机总数：<b style="color:#00ffcc;">'+(f.total*6)+'架</b><br>'
+    +'就绪：<b style="color:#00ffcc;">'+f.ready+'套 ('+(f.ready*6)+'架)</b> | '
+    +'出动：<b style="color:#ffd166;">'+f.out+'套 ('+(f.out*6)+'架)</b><br>'
+    +'驻扎坐标：'+f.lng.toFixed(2)+', '+f.lat.toFixed(2)+'</div>'
+    +'<div style="margin-top:10px;font-size:11px;font-weight:bold;color:#ffd166;">单套6机编队配置：</div>'
+    +'<table style="width:100%;font-size:10px;border-collapse:collapse;margin-top:4px;">'
+    +'<tr style="background:#0f3460;color:#00ffcc;">'
+    +'<th style="padding:3px 4px;text-align:left;border:1px solid #2a3a5c;">编号</th>'
+    +'<th style="padding:3px 4px;text-align:left;border:1px solid #2a3a5c;">机型</th>'
+    +'<th style="padding:3px 4px;text-align:left;border:1px solid #2a3a5c;">任务分工</th>'
+    +'</tr>';
+  for(var i=0;i<FLEET_COMPOSITION.length;i++){
+    var c = FLEET_COMPOSITION[i];
+    var typeColor = c.type==='固定翼' ? '#54a0ff' : '#ff9f43';
+    html += '<tr style="background:#16213e;">'
+      +'<td style="padding:3px 4px;border:1px solid #2a3a5c;">'+c.id+'</td>'
+      +'<td style="padding:3px 4px;border:1px solid #2a3a5c;color:'+typeColor+';">'+c.type+'</td>'
+      +'<td style="padding:3px 4px;border:1px solid #2a3a5c;">'+c.task+'</td>'
+      +'</tr>';
+  }
+  html += '</table>'
+    +'<div style="margin-top:8px;font-size:10px;color:#8a8aa0;">'
+    +'本省共 '+(f.ready)+' 套就绪编队可即时响应，点击"计算最近编队"可调度。</div>'
+    +'</div>';
+  if(fleetInfoWindow){ try{ fleetInfoWindow.close(); }catch(e){} }
+  fleetInfoWindow = new AMap.InfoWindow({
+    content:html,
+    offset:new AMap.Pixel(0,-20),
+    isCustom:true
+  });
+  fleetInfoWindow.open(map, [f.lng,f.lat]);
+  // 同时更新表单坐标
+  focusFleet(idx);
+}
+
+// 聚焦某省编队（在主地图上缩放定位）
+function focusFleet(idx){
+  var f=nationalFleets[idx];
+  map.setZoomAndCenter(6, [f.lng,f.lat]);
+  var sel=document.getElementById('dis-province');
+  if(sel) sel.value = idx;
+  var dl=document.getElementById('dis-lng'); if(dl) dl.value = f.lng.toFixed(4);
+  var dt=document.getElementById('dis-lat'); if(dt) dt.value = f.lat.toFixed(4);
+}
+
+// 计算最近的增援编队
+function calcNearestFleet(){
+  var lng = parseFloat(document.getElementById('dis-lng').value);
+  var lat = parseFloat(document.getElementById('dis-lat').value);
+  var need = parseInt(document.getElementById('dis-need').value);
+  if(isNaN(lng)||isNaN(lat)||isNaN(need)){
+    showNotice('输入无效', '请填写有效的灾害坐标与所需编队数', 'warn');
+    return;
+  }
+  // 计算各省份到灾区的距离，按就绪编队排序
+  var candidates=[];
+  for(var i=0;i<nationalFleets.length;i++){
+    var f=nationalFleets[i];
+    if(f.ready<=0) continue;
+    var dist = AMap.GeometryUtil.distance([lng,lat], [f.lng,f.lat]);
+    // 编队巡航速度按固定翼200km/h估算，ETA分钟
+    var eta = (dist/1000) / 200 * 60;
+    candidates.push({idx:i, province:f.province, dist:dist, ready:f.ready, eta:eta});
+  }
+  candidates.sort(function(a,b){return a.dist-b.dist;});
+  // 取前N个满足所需数量的省份
+  recommendedFleets=[];
+  var remaining=need;
+  for(var j=0;j<candidates.length && remaining>0;j++){
+    var c=candidates[j];
+    var take = Math.min(c.ready, remaining);
+    recommendedFleets.push({idx:c.idx, province:c.province, lng:nationalFleets[c.idx].lng,
+      lat:nationalFleets[c.idx].lat, dist:c.dist, eta:c.eta, take:take});
+    remaining -= take;
+  }
+  if(remaining>0){
+    showNotice('编队不足', '全国就绪编队不足以满足需求，已推荐全部 '+recommendedFleets.length+' 个可调用省份', 'warn');
+  }
+  // 渲染结果
+  var html='';
+  for(var k=0;k<recommendedFleets.length;k++){
+    var r=recommendedFleets[k];
+    html+='<div class="res-item">'
+      +'<div><span class="ri-rank">No.'+(k+1)+'</span> '+r.province+'</div>'
+      +'<div>调派：'+r.take+' 套编队（'+(r.take*6)+'架无人机）</div>'
+      +'<div class="ri-dist">距离：'+(r.dist/1000).toFixed(0)+' km</div>'
+      +'<div class="ri-eta">预计抵达：'+r.eta.toFixed(0)+' 分钟（按200km/h）</div>'
+      +'</div>';
+  }
+  if(recommendedFleets.length===0){
+    html='<div style="color:var(--red);">无可用就绪编队</div>';
+  }
+  document.getElementById('dp-result').innerHTML=html;
+  document.querySelector('.btn.deploy-dispatch').classList.add('show');
+  // 在主地图上绘制灾区点与增援航线
+  drawDisasterAndRoutes(lng, lat);
+}
+
+// 绘制灾区点与增援航线（在主地图上）
+function drawDisasterAndRoutes(lng, lat){
+  // 清除旧的灾区点与标签
+  if(disasterMarker){ try{ map.remove(disasterMarker); }catch(e){} disasterMarker=null; }
+  if(disasterLabel){ try{ map.remove(disasterLabel); }catch(e){} disasterLabel=null; }
+  for(var i=0;i<reinforcementLines.length;i++){ try{ map.remove(reinforcementLines[i]); }catch(e){} }
+  reinforcementLines=[];
+  // 清除旧的飞行飞机标记
+  for(var key in flyingDroneMarkers){ try{ map.remove(flyingDroneMarkers[key]); }catch(e){} }
+  flyingDroneMarkers={};
+  // 灾区点（红色脉冲）
+  disasterMarker = new AMap.Marker({
+    position:[lng,lat],
+    content:'<div style="width:24px;height:24px;border-radius:50%;'
+      +'background:#ef476f;border:3px solid #ffd166;box-shadow:0 0 16px #ef476f;'
+      +'animation:blink 0.6s infinite alternate;"></div>',
+    offset:new AMap.Pixel(-12,-12),
+    zIndex:200
+  });
+  map.add(disasterMarker);
+  disasterLabel = new AMap.Text({
+    position:[lng,lat], text:'★ 灾区点',
+    offset:new AMap.Pixel(0,-18),
+    style:{'background':'rgba(239,71,111,.9)','color':'#fff','font-size':'11px',
+           'font-weight':'bold','padding':'2px 6px','border-radius':'3px'}
+  });
+  map.add(disasterLabel);
+  // 增援航线
+  for(var i=0;i<recommendedFleets.length;i++){
+    var r=recommendedFleets[i];
+    var line = new AMap.Polyline({
+      path:[[r.lng,r.lat],[lng,lat]],
+      strokeColor:'#00ffcc',
+      strokeWeight:3,
+      strokeStyle:'dashed',
+      strokeDasharray:[10,6],
+      strokeOpacity:0.9,
+      showDir:true,
+      lineJoin:'round'
+    });
+    map.add(line);
+    reinforcementLines.push(line);
+  }
+  // 调整视野覆盖所有点
+  var allPts=[[lng,lat]];
+  for(var i=0;i<recommendedFleets.length;i++){
+    allPts.push([recommendedFleets[i].lng, recommendedFleets[i].lat]);
+  }
+  map.setFitView(allPts, false, [80,80,80,80]);
+}
+
+// 飞行中的飞机标记（全国增援动画）
+var flyingDroneMarkers = {};
+
+// 启动增援飞行动画：飞机图标沿航线从驻地飞往灾区
+function startReinforcementFlight(targetLng, targetLat){
+  for(var i=0;i<recommendedFleets.length;i++){
+    var r = recommendedFleets[i];
+    var fleetIdx = r.idx;
+    // 每套调派编队生成6架飞机标记，错开起始位置形成编队效果
+    for(var k=0;k<r.take*6;k++){
+      var droneId = 'fly_'+fleetIdx+'_'+k;
+      var startLng = r.lng + (k%3-1)*0.02;
+      var startLat = r.lat + (Math.floor(k/3)-1)*0.02;
+      var marker = new AMap.Marker({
+        position:[startLng,startLat],
+        content:'<div style="width:10px;height:10px;background:#00ffcc;'
+          +'clip-path:polygon(50% 0,100% 100%,50% 75%,0 100%);'
+          +'filter:drop-shadow(0 0 4px #00ffcc);"></div>',
+        offset:new AMap.Pixel(-5,-5),
+        zIndex:150
+      });
+      map.add(marker);
+      flyingDroneMarkers[droneId] = marker;
+      // 启动动画：从驻地缓动飞往灾区
+      animateFlight(marker, startLng, startLat, targetLng, targetLat, 8000 + k*200);
+    }
+  }
+}
+
+// 飞机沿直线缓动飞行动画
+function animateFlight(marker, fromLng, fromLat, toLng, toLat, duration){
+  var startTime = Date.now();
+  function step(){
+    var elapsed = Date.now() - startTime;
+    var t = Math.min(elapsed/duration, 1);
+    // 缓动函数：先加速后减速
+    var eased = t<0.5 ? 2*t*t : 1-Math.pow(-2*t+2,2)/2;
+    var curLng = fromLng + (toLng-fromLng)*eased;
+    var curLat = fromLat + (toLat-fromLat)*eased;
+    marker.setPosition([curLng, curLat]);
+    if(t<1){
+      requestAnimationFrame(step);
+    } else {
+      // 抵达后标记变为黄色（已到达）
+      marker.setContent('<div style="width:8px;height:8px;border-radius:50%;'
+        +'background:#ffd166;border:1px solid #1a1a2e;box-shadow:0 0 6px #ffd166;"></div>');
+      marker.setOffset(new AMap.Pixel(-4,-4));
+    }
+  }
+  step();
+}
+
+// 一键调度增援
+function dispatchReinforcement(){
+  if(recommendedFleets.length===0){
+    showNotice('未计算编队', '请先点击"计算最近编队"', 'warn');
+    return;
+  }
+  // 保存灾区坐标（recommendedFleets即将被清空，但动画需要目标点）
+  var targetLng=parseFloat(document.getElementById('dis-lng').value);
+  var targetLat=parseFloat(document.getElementById('dis-lat').value);
+  // 更新各省编队状态（就绪-1，出动+1）
+  for(var i=0;i<recommendedFleets.length;i++){
+    var r=recommendedFleets[i];
+    var f=nationalFleets[r.idx];
+    f.ready -= r.take;
+    f.out += r.take;
+  }
+  renderFleetList();
+  // 重绘地图节点（在主地图上）
+  drawNationalFleets();
+  // 重新绘制航线（保持显示）
+  drawDisasterAndRoutes(targetLng, targetLat);
+  // 启动飞行动画：各省飞机沿航线飞往灾区
+  startReinforcementFlight(targetLng, targetLat);
+  // 汇总
+  var totalTake=0, totalDrones=0, maxEta=0;
+  for(var i=0;i<recommendedFleets.length;i++){
+    totalTake += recommendedFleets[i].take;
+    totalDrones += recommendedFleets[i].take*6;
+    if(recommendedFleets[i].eta>maxEta) maxEta=recommendedFleets[i].eta;
+  }
+  showNotice('全国增援调度完成', '调派省份：'+recommendedFleets.length+' 个\n调派编队：'+totalTake+' 套（'+totalDrones+' 架无人机）\n最远抵达时间：'+maxEta.toFixed(0)+' 分钟\n\n✓ 各省编队状态已更新，3D地图可见飞机沿增援航线飞行。国家级跨区域协同救援已启动。', 'info');
+  document.querySelector('.btn.deploy-dispatch').classList.remove('show');
+  document.getElementById('dp-result').innerHTML =
+    '<div style="color:var(--hi);">✓ 增援调度已下达，共调派 '+totalTake+' 套编队('+totalDrones+'架)。\n'
+    +'飞机正沿航线飞往灾区，3D地图可见实时航迹动画。\n\n可继续选择新的灾区点进行下一次调度。</div>';
+  recommendedFleets=[];
+}
+
+/* =========================================================================
+   十三、启动
+   ========================================================================= */
+window.onload=function(){
+  renderDronePanel();
+  renderPersonList();
+  initMap();
+  startLoop();
+};
+</script>
+</body>
+</html>
