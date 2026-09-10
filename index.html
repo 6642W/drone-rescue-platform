@@ -2457,9 +2457,8 @@ function initMap(){
     buildingAnimation:true  // 建筑加载动画
   });
 
-  // 地图加载完成：自动绘制全国部署节点 + 救援集合点
+  // 地图加载完成：初始只绘制全国部署节点（保持画面干净：只有地图+编队）
   map.on('complete', function(){
-    drawRescueBase();
     drawNationalFleets();
     fleetsDrawn = true;
     // 禁用高德默认POI点击弹窗（防止出现含"详情"字样的默认InfoWindow干扰界面）
@@ -3211,6 +3210,7 @@ function autoDispatchGroundRescue(){
       var team = {
         id:id, type:type, name:cfg.name, lng:lng, lat:lat,
         status:'work',  // 出动即进入任务状态
+        simAuto:true,   // 智能匹配的临时仿真力量，不持久化（刷新即清空）
         personnel:cfg.personnel, equipment:cfg.equipment, capacity:cfg.capacity,
         speed: type==='rescue' ? 40 : (type==='ambulance' ? 60 : 50)
       };
@@ -5724,9 +5724,9 @@ function clearStore(storeName){
 function saveAllToOffline(){
   try{
     if(!db) return;
-    // 无人机
+    // 无人机（排除智能仿真自动起飞的临时无人机）
     clearStore('drones');
-    saveToDB('drones', drones);
+    saveToDB('drones', drones.filter(function(d){return !d.simAuto;}));
     // 被困人员
     clearStore('persons');
     saveToDB('persons', persons);
@@ -5736,10 +5736,11 @@ function saveAllToOffline(){
     // 投送任务
     clearStore('supplyMissions');
     saveToDB('supplyMissions', supplyMissions);
-    // 地面救援力量
+    // 地面救援力量（排除智能匹配的临时仿真车辆）
     clearStore('groundTeams');
-    if(groundTeams && groundTeams.length > 0){
-      saveToDB('groundTeams', groundTeams);
+    var persistTeams = groundTeams.filter(function(g){return !g.simAuto;});
+    if(persistTeams.length > 0){
+      saveToDB('groundTeams', persistTeams);
     }
     // 应急迫降点
     clearStore('emergencyLandings');
@@ -5767,6 +5768,13 @@ function saveAllToOffline(){
 function loadOfflineData(){
   try{
     if(!db) return;
+
+    // 一次性清理：旧版本可能缓存了仿真测试残留（救援车辆/测试人员/测试无人机/边界），
+    // 版本不匹配时清空全部作业态势，保证打开页面只有地图+全国编队
+    var STATE_VER = 'rescue_clean_v2';
+    var purgedStores = ['drones','persons','groundTeams','supplyRequests','supplyMissions',
+                        'emergencyLandings','failureDrones','boundary','syncQueue'];
+    function doLoad(){
     var loadedCount = 0;
     // 加载无人机
     loadFromDB('drones', function(data){
@@ -5846,6 +5854,24 @@ function loadOfflineData(){
     });
     if(loadedCount > 0){
       setStatus('📦 已从本地缓存加载 '+loadedCount+' 条态势数据（离线模式）','var(--yellow)');
+    }
+    } // end doLoad
+
+    // 按版本决定是否先清空旧缓存
+    var needPurge = false;
+    try{ needPurge = localStorage.getItem(STATE_VER) !== '1'; }catch(e){ needPurge = true; }
+    if(needPurge){
+      var tx = db.transaction(purgedStores, 'readwrite');
+      tx.oncomplete = function(){
+        try{ localStorage.setItem(STATE_VER, '1'); }catch(e){}
+        doLoad();
+      };
+      tx.onerror = function(){ doLoad(); };
+      for(var si=0; si<purgedStores.length; si++){
+        try{ tx.objectStore(purgedStores[si]).clear(); }catch(e){}
+      }
+    }else{
+      doLoad();
     }
   }catch(e){
     console.warn('loadOfflineData异常:', e);
@@ -6780,7 +6806,7 @@ function launchRoadSurveyAnimation(path){
          || drones.find(function(x){return x.type==='固定翼';});
     if(!d){
       d = {id:'固定翼-04', type:'固定翼', task:'地形与道路勘探', status:'work', battery:100,
-           alt:500, lng:path[0][0], lat:path[0][1], heading:0,
+           alt:500, lng:path[0][0], lat:path[0][1], heading:0, simAuto:true,
            payload:{maxWeight:15, items:[]}};
       drones.push(d);
       if(!nextDroneNum['固定翼'] || nextDroneNum['固定翼'] < 4) nextDroneNum['固定翼'] = 4;
@@ -7089,11 +7115,15 @@ function switchView(mode){
       drawNationalFleets();
       fleetsDrawn=true;
     }
+    // 全国视图不显示救援集合点（仅地图+编队节点）
+    if(rescueBaseMarker){ try{ map.remove(rescueBaseMarker); }catch(e){} rescueBaseMarker = null; }
     document.getElementById('btn-view-national').classList.add('view-active');
     document.getElementById('btn-view-disaster').classList.remove('view-active');
     setStatus('已切换至「全国部署视图」：展示34省无人机编队实时分布，可点击省份节点查看详情或打开部署指挥面板进行跨省增援调度。','var(--hi)');
   }else if(mode==='disaster'){
     currentView='disaster';
+    // 进入灾区作业视图时才显示救援集合点
+    if(!rescueBaseMarker){ drawRescueBase(); }
     // 优先使用用户自定义的救援集合点作为视图中心
     var viewCenter = RESCUE_BASE;
     // 如果有灾区边界，计算边界中心作为视图中心
