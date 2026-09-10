@@ -2635,9 +2635,10 @@ function drawDrones(){
         + 'font-size:8px;font-weight:bold;padding:1px 4px;border-radius:8px;'
         + 'border:1px solid #00ffcc;white-space:nowrap;">5G覆盖</div>';
     }
+    var heading = (typeof d.heading === 'number') ? d.heading : 0;
     var content = '<div style="position:relative;width:20px;height:20px;">'
       + signalRings
-      + '<div style="position:absolute;top:0;left:50%;transform:translateX(-50%);'
+      + '<div class="drone-arrow" style="position:absolute;top:0;left:50%;transform:translateX(-50%) rotate('+heading+'deg);'
       + 'width:0;height:0;border-left:8px solid transparent;border-right:8px solid transparent;'
       + 'border-bottom:14px solid '+color+';'+glow+'z-index:2;"></div>'
       + '<div style="position:absolute;top:15px;left:50%;transform:translateX(-50%);'
@@ -2956,9 +2957,12 @@ function drawGroundMarker(team){
   try{
     if(!map) return;
     var cfg = GROUND_TYPE_CONFIG[team.type];
-    // 使用Marker显示图标+文字标签
+    // 使用Marker显示图标+文字标签（emoji单独一层用于按行驶方向旋转，车牌不跟着转）
     var markerContent = '<div style="text-align:center;cursor:pointer;">'
-      + '<div style="font-size:22px;text-shadow:0 0 4px rgba(0,0,0,0.5);">'+cfg.icon+'</div>'
+      + '<div class="ground-emoji" data-team="'+team.id+'" style="font-size:22px;line-height:22px;height:22px;'
+      + 'text-shadow:0 0 4px rgba(0,0,0,0.6);transform:rotate(0deg);transform-origin:center center;'
+      + 'will-change:transform;">'+cfg.icon+'</div>'
+      + '<div style="height:4px;width:20px;margin:1px auto 0;border-radius:50%;background:rgba(0,0,0,.45);filter:blur(1px);"></div>'
       + '<div style="font-size:10px;background:rgba(0,20,40,0.85);border:1px solid '+cfg.color+';color:'+cfg.color+';padding:1px 6px;border-radius:4px;font-weight:600;margin-top:2px;white-space:nowrap;">'+team.id+'</div>'
       + '</div>';
     var marker = new AMap.Marker({
@@ -3035,6 +3039,11 @@ function clearGroundTeams(){
     for(var id in groundMarkers){
       if(groundMarkers[id]){ groundMarkers[id].setMap(null); }
     }
+    // 清除所有车辆车辙轨迹
+    for(var tid in teamTrackLines){
+      try{ map.remove(teamTrackLines[tid]); }catch(e){}
+    }
+    teamTrackLines = {};
     groundMarkers = {};
     groundTeams = [];
     autoDispatched = {rescue:0, ambulance:0, firetruck:0};
@@ -3102,6 +3111,8 @@ function dispatchGroundTeam(teamId, targetLng, targetLat, targetPid){
 var autoDispatched = {rescue:0, ambulance:0, firetruck:0};
 // 当前沿路线机动中的车辆队列（用于车辆编队依次出发）
 var routeConvoy = [];
+// 智能派车是否正在等待道路规划完成（防止重复触发规划）
+var autoRoutePlanning = false;
 
 // 根据已发现被困人员的【人数+伤情/需求类型】，自动计算所需地面救援力量
 // 1受伤需医疗：救护车按2人/辆；4被困：消防车按8人/辆；缺水缺粮：救援队按10人/组；另配救援队破拆保障
@@ -3150,10 +3161,32 @@ function autoDispatchGroundRescue(){
     };
     if(delta.rescue + delta.ambulance + delta.firetruck === 0) return;  // 力量已满足，无需新增
 
-    // 获取沿路线机动的完整路径（智能规划的路网路径 → 否则起终点直线 → 否则无路线）
-    var path = getDispatchPath();
+    // 道路路径：必须等"智能规划的路网"出来再派车，避免车沿直线飘过去
+    // 有起终点但还没规划 → 先触发挥路规划（规划完成会自动起飞侦察机），完成后再自动派车
+    var hasRoad = !!(plannedRoute && plannedRoute.pathArr && plannedRoute.pathArr.length >= 2);
+    if(!hasRoad){
+      if(routeStart && routeEnd){
+        if(!autoRoutePlanning){
+          autoRoutePlanning = true;
+          setStatus('🛰️ 已探查到受困群众，道路侦察无人机即将起飞探明路线，救援车队在起点集结待命…','var(--hi)');
+          planRescueRoute(function(roadPath, isRoad){
+            autoRoutePlanning = false;
+            if(isRoad && roadPath){
+              autoDispatchGroundRescue();
+            }else{
+              setStatus('⚠ 路网数据获取失败，救援力量不沿直线冒险开进，车队集结待命；请重试「智能规划路线」','var(--yellow)');
+              showNotice('道路路网暂不可用', '道路侦察无人机已起飞，但本次未能获取道路路网数据。\n\n救援车队不会沿直线冒险开进，已在待命区集结。请稍后重新点击「智能规划路线」，路网恢复后将立即沿道路开进。', 'warn');
+            }
+          });
+        }
+        return;
+      }
+      // 连起终点都没有：无法规划道路，车辆在灾区外围集结后不再直线开进
+      setStatus('⚠ 已匹配救援力量，但未设置救援路线起终点；车辆集结待命，请先用「路线设计」设置起终点','var(--yellow)');
+    }
+    var path = hasRoad ? getDispatchPath() : null;
 
-    // 出发集结点（路线起点附近错开停车，形成车队；无路线时在地图中心/灾区附近集结）
+    // 出发集结点（沿道路方向在起点处列队：依次向后排列+车道微偏移，保证车辆停在道路上）
     var base = path ? path[0] : null;
     var order = 0;
     function spawn(type){
@@ -3162,9 +3195,14 @@ function autoDispatchGroundRescue(){
       var id = cfg.name + '-' + String(seq).padStart(2, '0');
       var lng, lat;
       if(base){
-        // 同点出发时做微小偏移避免图标完全重叠
-        lng = base[0] + (Math.random()-0.5)*0.0015;
-        lat = base[1] + (Math.random()-0.5)*0.0015;
+        var headDeg = bearingDeg(base, path[1] || base);
+        var headRad = headDeg * Math.PI/180;
+        var cosLat = Math.cos(base[1]*Math.PI/180) || 1;
+        // 沿道路后方 0/30/60…m 列队，左右车道 ±10m 微偏移
+        var backM = order * 30;
+        var laneM = (order % 2 === 0 ? -1 : 1) * 8;
+        lng = base[0] - Math.sin(headRad)*backM/(111320*cosLat) + Math.cos(headRad)*laneM/(111320*cosLat);
+        lat = base[1] - Math.cos(headRad)*backM/110540 - Math.sin(headRad)*laneM/110540;
       } else {
         var cc = map.getCenter();
         lng = cc.lng + (Math.random()-0.5)*0.06;
@@ -3234,8 +3272,8 @@ function autoDispatchGroundRescue(){
   }
 }
 
-// 规范化获取当前规划路线的完整路径 [[lng,lat],...]
-function getDispatchPath(){
+// 规范化路径点：兼容 LngLat 对象 / [lng,lat]，输出 [[lng,lat],...]
+function normLngLatPath(raw){
   function norm(pt){
     if(!pt) return null;
     if(Array.isArray(pt)) return [pt[0], pt[1]];
@@ -3243,34 +3281,102 @@ function getDispatchPath(){
     if(pt.lng !== undefined) return [pt.lng, pt.lat];
     return null;
   }
-  var raw = null;
-  if(plannedRoute && plannedRoute.originalPath && plannedRoute.originalPath.length >= 2){
-    raw = plannedRoute.originalPath;
-  } else if(routeStart && routeEnd){
-    raw = [routeStart, routeEnd];
-  }
-  if(!raw) return null;
   var pts = [];
+  if(!raw) return pts;
   for(var i=0;i<raw.length;i++){
     var np = norm(raw[i]);
     if(np) pts.push(np);
   }
+  return pts;
+}
+
+// 计算行驶/飞行方位角（0=正北，顺时针，度）
+function bearingDeg(a, b){
+  var dx = (b[0]-a[0]) * Math.cos(a[1]*Math.PI/180);
+  var dy = b[1]-a[1];
+  return (Math.atan2(dx, dy) * 180/Math.PI + 360) % 360;
+}
+
+// 沿路径的累计长度数组
+function buildCumulativeDist(path){
+  var cum = [0];
+  for(var i=1;i<path.length;i++){
+    cum.push(cum[i-1] + AMap.GeometryUtil.distance(path[i-1], path[i]));
+  }
+  return cum;
+}
+
+// 由累计里程定位路径上的点（返回 [lng,lat] 与当前方位角）
+function pointAtDistance(path, cum, dist){
+  var total = cum[cum.length-1] || 1;
+  if(dist <= 0) return {pos:path[0], heading: bearingDeg(path[0], path[Math.min(1,path.length-1)])};
+  if(dist >= total){
+    var n = path.length;
+    return {pos:path[n-1], heading: bearingDeg(path[n-2]||path[n-1], path[n-1])};
+  }
+  var seg = 1;
+  while(seg < cum.length-1 && cum[seg] < dist) seg++;
+  var segLen = cum[seg] - cum[seg-1] || 1;
+  var ratio = (dist - cum[seg-1]) / segLen;
+  var lng = path[seg-1][0] + (path[seg][0]-path[seg-1][0]) * ratio;
+  var lat = path[seg-1][1] + (path[seg][1]-path[seg-1][1]) * ratio;
+  return {pos:[lng,lat], heading: bearingDeg(path[seg-1], path[seg])};
+}
+
+// 车辆行驶轨迹（车辙）覆盖物表
+var teamTrackLines = {};
+
+// 获取车辆 emoji 旋转层 DOM（marker 被重绘后仍可重新取到）
+function getGroundEmojiDom(teamId){
+  try{
+    var mk = groundMarkers[teamId];
+    if(!mk || !mk.getDom) return null;
+    return mk.getDom().querySelector('.ground-emoji');
+  }catch(e){ return null; }
+}
+
+function getDispatchPath(){
+  var raw = null;
+  if(plannedRoute){
+    if(plannedRoute.pathArr && plannedRoute.pathArr.length >= 2){
+      return plannedRoute.pathArr.slice();
+    }
+    if(plannedRoute.originalPath && plannedRoute.originalPath.length >= 2){
+      raw = plannedRoute.originalPath;
+    }
+  }
+  if(!raw && routeStart && routeEnd){
+    raw = [routeStart, routeEnd];
+  }
+  if(!raw) return null;
+  var pts = normLngLatPath(raw);
   return pts.length >= 2 ? pts : null;
 }
 
-// 单车沿规划路径机动：按实际路段长度插值，沿道路折线行驶（非直线）
+// 单车沿规划路径机动：严格沿路径折线行驶 + 车头朝向 + 起步/停车缓动 + 车辙轨迹
 function dispatchTeamAlongRoute(team, path, totalDistM, convoyDelay){
   try{
-    // 预计算各路段长度与累计长度
-    var cum = [0];
-    for(var i=1;i<path.length;i++){
-      cum.push(cum[i-1] + AMap.GeometryUtil.distance(path[i-1], path[i]));
-    }
+    var cum = buildCumulativeDist(path);
     var total = cum[cum.length-1] || 1;
-    // 机动时长：真实车程 × 1/30 压缩，3~30秒之间
+    // 机动时长：真实车程压缩，最短5秒（太短跑不起来），最长40秒
     var realSeconds = total / (team.speed * 1000 / 3600);
-    var duration = Math.min(30000, Math.max(3000, realSeconds/30*1000));
+    var duration = Math.min(40000, Math.max(5000, realSeconds/30*1000));
     var startTs = Date.now();
+
+    // 车辆颜色（车辙用）
+    var trackColor = team.type==='ambulance' ? '#ff5c7a' : (team.type==='firetruck' ? '#ff9f43' : '#00ffcc');
+
+    // 创建车辙线（初始只有起点）
+    var track = null;
+    try{
+      track = new AMap.Polyline({
+        path:[[team.lng, team.lat]],
+        strokeColor:trackColor, strokeWeight:3, strokeOpacity:0.55,
+        lineJoin:'round', lineCap:'round', zIndex:60, showDir:true
+      });
+      map.add(track);
+      teamTrackLines[team.id] = track;
+    }catch(e){}
 
     var missionId = 'GM-' + String(groundMissions.length + 1).padStart(3, '0');
     groundMissions.push({
@@ -3279,31 +3385,61 @@ function dispatchTeamAlongRoute(team, path, totalDistM, convoyDelay){
       arriveTime:null, dist:(total/1000).toFixed(1),
       eta:(realSeconds/60).toFixed(0)
     });
-    setStatus('🚑 '+team.id+' 出发！沿规划救援路线向灾区终点开进（全程 '
+    setStatus('🚑 '+team.id+' 出发！沿规划救援道路向灾区终点开进（全程 '
       +(total/1000).toFixed(1)+' km，预计'+(realSeconds/60).toFixed(0)+'分钟）','var(--hi)');
+
+    var lastTrackTs = 0;
+    var lastHeading = null;
 
     function step(){
       try{
-        var t = Math.min(1, (Date.now()-startTs)/duration);
-        var dist = total * t;
-        // 找到当前所在路段
-        var seg = 1;
-        while(seg < cum.length-1 && cum[seg] < dist) seg++;
-        var segLen = cum[seg] - cum[seg-1] || 1;
-        var ratio = (dist - cum[seg-1]) / segLen;
-        team.lng = path[seg-1][0] + (path[seg][0]-path[seg-1][0]) * ratio;
-        team.lat = path[seg-1][1] + (path[seg][1]-path[seg-1][1]) * ratio;
-        if(groundMarkers[team.id]){
-          groundMarkers[team.id].setPosition([team.lng, team.lat]);
+        var rawT = Math.min(1, (Date.now()-startTs)/duration);
+        // 缓入缓出（起步加速、停车减速），全程严格贴着路径折线走
+        var e = rawT < 0.5 ? 2*rawT*rawT : 1 - Math.pow(-2*rawT+2, 2)/2;
+        var hit = pointAtDistance(path, cum, total * e);
+        team.lng = hit.pos[0];
+        team.lat = hit.pos[1];
+
+        var mk = groundMarkers[team.id];
+        if(mk){
+          mk.setPosition([team.lng, team.lat]);
+          // 车头朝向：emoji 默认朝西(左)，补偿 +90°；加 0.12s 平滑过渡避免路口猛跳
+          var emoji = getGroundEmojiDom(team.id);
+          if(emoji){
+            var target = (hit.heading + 90) % 360;
+            if(lastHeading === null){
+              emoji.style.transition = 'none';
+              emoji.style.transform = 'rotate('+target+'deg)';
+              lastHeading = target;
+              setTimeout(function(){ try{ emoji.style.transition = 'transform .18s linear'; }catch(_){} }, 30);
+            }else{
+              emoji.style.transform = 'rotate('+target+'deg)';
+              lastHeading = target;
+            }
+          }
         }
-        if(t < 1){
+
+        // 车辙：每 120ms 追加当前点
+        var now = Date.now();
+        if(track && now - lastTrackTs > 120){
+          lastTrackTs = now;
+          var tp = track.getPath();
+          tp.push([team.lng, team.lat]);
+          track.setPath(tp);
+        }
+
+        if(rawT < 1){
           requestAnimationFrame(step);
         }else{
+          // 归位精确落点
+          team.lng = path[path.length-1][0];
+          team.lat = path[path.length-1][1];
+          if(mk) mk.setPosition([team.lng, team.lat]);
           team.status = 'work';
           var mission = groundMissions.find(function(m){return m.id===missionId;});
           if(mission){ mission.status='arrived'; mission.arriveTime=new Date().toLocaleTimeString('zh-CN',{hour12:false}); }
           renderGroundList();
-          setStatus('✓ '+team.id+' 已沿路线抵达灾区终点，立即展开救援作业','var(--hi)');
+          setStatus('✓ '+team.id+' 已沿规划道路抵达灾区终点，立即展开救援作业','var(--hi)');
         }
       }catch(e){ console.warn('沿路线机动step异常:', e); }
     }
@@ -6342,9 +6478,11 @@ function setRouteEnd(lng, lat){
 }
 
 // 智能规划救援路线（基于高德驾车路线规划 + 断道避障）
-function planRescueRoute(){
+// onDone: 规划完成回调（成功/失败都会调用，参数为规范化后的路径点数组）
+function planRescueRoute(onDone){
   if(!routeStart || !routeEnd){
     showNotice('未设置路线', '请先设置路线起点和终点！\n\n点击右上角路线面板中的"设置"按钮，或使用编辑模式在地图上点击标记。', 'warn');
+    if(onDone) onDone(null, false);
     return;
   }
   setStatus('正在规划最优救援路线，分析道路通行状况…','var(--hi)');
@@ -6358,18 +6496,18 @@ function planRescueRoute(){
         try{
           if(status === 'complete' && result && result.routes && result.routes.length > 0){
             var route = result.routes[0];
-            analyzeAndDrawRoute(route);
+            analyzeAndDrawRoute(route, onDone);
           } else {
-            drawFallbackRoute();
+            drawFallbackRoute(onDone);
           }
         }catch(e2){
           console.warn('路线分析异常:', e2);
-          drawFallbackRoute();
+          drawFallbackRoute(onDone);
         }
       });
     }catch(e){
       console.warn('路线规划请求异常:', e);
-      drawFallbackRoute();
+      drawFallbackRoute(onDone);
     }
   }
 
@@ -6388,12 +6526,12 @@ function planRescueRoute(){
           doSearch();
         }catch(e){
           console.warn('Driving插件实例化失败:', e);
-          drawFallbackRoute();
+          drawFallbackRoute(onDone);
         }
       });
     }else{
       // 插件加载器不可用，直接走备用方案
-      drawFallbackRoute();
+      drawFallbackRoute(onDone);
     }
   }else{
     doSearch();
@@ -6401,7 +6539,7 @@ function planRescueRoute(){
 }
 
 // 分析路线并检测断道，绘制避障后的救援路线
-function analyzeAndDrawRoute(route){
+function analyzeAndDrawRoute(route, onDone){
   // 路线总距离(米)和时间(秒)
   var totalDist = route.distance;
   var totalTime = route.time;
@@ -6433,13 +6571,17 @@ function analyzeAndDrawRoute(route){
     segments.push(seg);
   }
 
+  // 规范化路网折线（LngLat对象 → [lng,lat]），供车辆行驶与无人机侦察共用同一份数据
+  var pathArr = normLngLatPath(route.path);
+
   // 保存路线数据
   plannedRoute = {
     distance: totalDist,
     duration: totalTime,
     segments: segments,
     blockedCount: blockedSegments.length,
-    originalPath: route.path
+    originalPath: route.path,
+    pathArr: pathArr
   };
 
   // 绘制路线（正常路段青色，断道红色标注，绕行橙色）
@@ -6450,6 +6592,10 @@ function analyzeAndDrawRoute(route){
   setStatus('✓ 路线规划完成：总距离 '+(totalDist/1000).toFixed(2)+' km，'
     +'预计 '+(totalTime/60).toFixed(0)+' 分钟，'
     +'发现 '+blockedSegments.length+' 处断道，已自动规划绕行方案。', 'var(--hi)');
+
+  // 路线画好后，道路侦察无人机自动起飞，沿规划道路从起点巡航到终点
+  launchRoadSurveyAnimation(pathArr);
+  if(onDone) onDone(pathArr, true);
 }
 
 // 绘制救援路线（按路段分别着色：正常/断道/绕行）
@@ -6560,8 +6706,8 @@ function updateRouteDetail(dist, time, segments, blocked){
 }
 
 // 规划失败时的备用直线方案
-function drawFallbackRoute(){
-  if(!routeStart || !routeEnd) return;
+function drawFallbackRoute(onDone){
+  if(!routeStart || !routeEnd){ if(onDone) onDone(null); return; }
   var dist = AMap.GeometryUtil.distance(routeStart, routeEnd);
   if(rescueRoutePolyline){
     for(var i=0;i<rescueRoutePolyline.length;i++){
@@ -6580,6 +6726,10 @@ function drawFallbackRoute(){
     '<div class="rd-distance">直线距离：'+(dist/1000).toFixed(2)+' km</div>'
    +'<div style="color:var(--yellow);margin-top:6px;">⚠ 无法获取路网数据，显示直线距离</div>';
   setStatus('⚠ 路线规划：无法获取路网数据，已显示直线距离','var(--yellow)');
+  // 路网不可用时侦察机同样起飞（沿直线巡航），保证"侦察→开进"流程完整
+  var pts = normLngLatPath([routeStart, routeEnd]);
+  launchRoadSurveyAnimation(pts);
+  if(onDone) onDone(pts, false);
 }
 
 // 清除路线
@@ -6596,55 +6746,135 @@ function clearRoute(){
   setStatus('路线已清除','var(--dim)');
 }
 
-// 无人机道路勘探（派遣固定翼无人机沿道路飞行侦察路况）
-function droneRoadSurvey(){
-  // 找固定翼-04（地形勘探），没有就找第一架固定翼
-  var surveyDrone = drones.find(function(d){ return d.task.indexOf('勘探')>=0 && d.status==='standby'; })
-    || drones.find(function(d){ return d.type==='固定翼' && d.status==='standby'; });
-  if(!surveyDrone){
-    setStatus('无可用固定翼无人机执行道路勘探任务，请先添加。','var(--red)');
-    showNotice('无勘探无人机', '未找到待命的固定翼无人机。\n\n请先点击工具栏"添加无人机"，机型选"固定翼"，任务选"地形与道路勘探"进行部署。', 'warn');
-    return;
+// 道路侦察无人机是否正在飞行（避免重复起飞）
+var surveyFlying = false;
+var surveyTrailLine = null;
+
+// 道路侦察无人机沿规划道路飞行：先从当前位置飞到路线起点，再沿道路路径飞到终点
+function launchRoadSurveyAnimation(path){
+  try{
+    if(!path || path.length < 2 || !map) return;
+    if(surveyFlying) return;
+
+    // 选择勘探机：待命的勘探固定翼 → 任意待命固定翼 → 任意固定翼 → 都没有则自动起飞一架
+    var d = drones.find(function(x){return x.status==='standby' && x.type==='固定翼' && x.task.indexOf('勘探')>=0;})
+         || drones.find(function(x){return x.status==='standby' && x.type==='固定翼';})
+         || drones.find(function(x){return x.type==='固定翼';});
+    if(!d){
+      d = {id:'固定翼-04', type:'固定翼', task:'地形与道路勘探', status:'work', battery:100,
+           alt:500, lng:path[0][0], lat:path[0][1], heading:0,
+           payload:{maxWeight:15, items:[]}};
+      drones.push(d);
+      if(!nextDroneNum['固定翼'] || nextDroneNum['固定翼'] < 4) nextDroneNum['固定翼'] = 4;
+      drawDrones(); renderDronePanel();
+      setStatus('🛩️ 自动起飞 固定翼-04（地形与道路勘探机）执行道路侦察','var(--hi)');
+    }
+
+    surveyFlying = true;
+    d.status = 'work';
+    d.task = '道路勘探(执行中)→沿规划道路飞抵终点';
+    d.alt = 500;
+    renderDronePanel();
+
+    // 清掉旧航迹，建新航迹
+    if(surveyTrailLine){ try{ map.remove(surveyTrailLine); }catch(e){} }
+    surveyTrailLine = new AMap.Polyline({
+      path:[], strokeColor:'#ffd166', strokeWeight:2, strokeOpacity:0.7,
+      strokeStyle:'dashed', lineJoin:'round', zIndex:55
+    });
+    map.add(surveyTrailLine);
+
+    var cum = buildCumulativeDist(path);
+    var total = cum[cum.length-1] || 1;
+    // 巡航 220km/h 压缩：5~18秒
+    var cruiseDur = Math.min(18000, Math.max(5000, (total/(220*1000/3600))/40*1000));
+    var takeoffDur = 1400;
+    var startTs = Date.now();
+    var fromPos = [d.lng, d.lat];
+    var lastTrailTs = 0;
+
+    function applyDronePos(lng, lat, heading){
+      d.lng = lng; d.lat = lat;
+      if(typeof heading === 'number') d.heading = heading;
+      // 直接移动现有marker；若期间被其他逻辑重绘，则重新取
+      var mk = droneMarkers[d.id];
+      if(mk){
+        mk.setPosition([lng, lat]);
+        var arrow = mk.getDom ? mk.getDom().querySelector('.drone-arrow') : null;
+        if(arrow && typeof heading === 'number'){
+          arrow.style.transform = 'translateX(-50%) rotate('+heading+'deg)';
+        }
+      }else{
+        drawDrones();
+      }
+      var now = Date.now();
+      if(surveyTrailLine && now - lastTrailTs > 100){
+        lastTrailTs = now;
+        var tp = surveyTrailLine.getPath();
+        tp.push([lng, lat]);
+        surveyTrailLine.setPath(tp);
+      }
+    }
+
+    setStatus('🛩️ '+d.id+' 起飞！沿规划道路由起点向终点巡航侦察（航程 '
+      +(total/1000).toFixed(1)+' km，高度500m）…','var(--hi)');
+
+    (function frame(){
+      try{
+        var el = Date.now() - startTs;
+        if(el < takeoffDur){
+          // 阶段1：从当前位置飞往路线起点
+          var t0 = el/takeoffDur;
+          var e0 = 1 - Math.pow(1-t0, 3);  // easeOutCubic
+          var lng0 = fromPos[0] + (path[0][0]-fromPos[0])*e0;
+          var lat0 = fromPos[1] + (path[0][1]-fromPos[1])*e0;
+          var h0 = bearingDeg(fromPos, path[0]);
+          applyDronePos(lng0, lat0, h0);
+          requestAnimationFrame(frame);
+          return;
+        }
+        // 阶段2：沿道路路径巡航
+        var t1 = Math.min(1, (el-takeoffDur)/cruiseDur);
+        var e1 = t1 < 0.5 ? 2*t1*t1 : 1 - Math.pow(-2*t1+2, 2)/2;
+        var hit = pointAtDistance(path, cum, total*e1);
+        applyDronePos(hit.pos[0], hit.pos[1], hit.heading);
+        if(t1 < 1){
+          requestAnimationFrame(frame);
+        }else{
+          d.lng = path[path.length-1][0];
+          d.lat = path[path.length-1][1];
+          applyDronePos(d.lng, d.lat, hit.heading);
+          d.task = '道路勘探完成→路况已回传指挥中心';
+          surveyFlying = false;
+          renderDronePanel();
+          var blocked = plannedRoute ? plannedRoute.blockedCount : 0;
+          setStatus('✓ '+d.id+' 已沿道路飞抵终点，道路侦察完成'+(blocked?'，发现 '+blocked+' 处断道/塌方，已生成绕行方案':'，全线道路通行正常')+'。','var(--hi)');
+        }
+      }catch(e){
+        console.warn('道路侦察飞行动画异常:', e);
+        surveyFlying = false;
+      }
+    })();
+  }catch(e){
+    console.warn('launchRoadSurveyAnimation异常:', e);
+    surveyFlying = false;
   }
+}
+
+// 无人机道路勘探（派遣固定翼无人机沿规划道路飞行侦察路况）
+function droneRoadSurvey(){
   if(!routeStart || !routeEnd){
     showNotice('未设置路线', '请先设置路线起点和终点，勘探无人机将沿路线飞行侦察路况。', 'warn');
     return;
   }
-  surveyDrone.status = 'work';
-  surveyDrone.task = '道路勘探(执行中)→侦察道路通行状况';
-  surveyDrone.alt = 500;
-  renderDronePanel();
-  setStatus('已派遣 '+surveyDrone.id+' 执行道路勘探任务，无人机正在沿路线飞行侦察路况…','var(--hi)');
-
-  // 模拟沿路线飞行（从起点飞向终点，沿途检测路况）
-  var path = [routeStart, routeEnd];
-  var startLng = surveyDrone.lng, startLat = surveyDrone.lat;
-  var steps = 80, i = 0;
-  var timer = setInterval(function(){
-    try{
-      i++;
-      var t = i/steps;
-      var e = t<0.5 ? 2*t*t : -1+(4-2*t)*t;
-      var curLng = startLng + (routeEnd[0]-startLng)*e;
-      var curLat = startLat + (routeEnd[1]-startLat)*e;
-      surveyDrone.lng = curLng;
-      surveyDrone.lat = curLat;
-      if(droneMarkers[surveyDrone.id]){
-        droneMarkers[surveyDrone.id].setPosition([curLng,curLat]);
-      }
-      if(i >= steps){
-        clearInterval(timer);
-        setStatus('✓ '+surveyDrone.id+' 道路勘探完成，正在生成避障路线…','var(--hi)');
-        // 勘探完成，自动触发路线规划（含断道检测）
-        try{ planRescueRoute(); }
-        catch(pe){ console.warn('勘探后路线规划异常:', pe); drawFallbackRoute(); }
-      }
-    }catch(err){
-      console.warn('勘探飞行动画异常:', err);
-      clearInterval(timer);
-      setStatus('勘探过程出现异常，已停止。错误：'+err.message, 'var(--red)');
-    }
-  }, 60);
+  // 已有规划道路 → 立即沿道路侦察；否则先规划（规划完成会自动起飞侦察）
+  var pts = getDispatchPath();
+  if(plannedRoute && pts){
+    launchRoadSurveyAnimation(pts);
+  }else{
+    setStatus('🛩️ 道路侦察任务受理，正在先行规划道路路线…','var(--hi)');
+    planRescueRoute();
+  }
 }
 
 // 安全清除单个地图覆盖物（统一错误处理）
