@@ -1,0 +1,22 @@
+{
+  "name": "应急救援6机协同指挥可视化平台",
+  "short_name": "救援指挥平台",
+  "description": "面向地震、森林火灾等突发灾害的无人机指挥系统可视化平台",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0a0e1a",
+  "theme_color": "#00ffcc",
+  "orientation": "landscape",
+  "icons": [
+    {
+      "src": "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 192 192'%3E%3Crect width='192' height='192' fill='%230a0e1a'/%3E%3Ctext x='96' y='120' font-size='100' text-anchor='middle' fill='%2300ffcc'%3E🚁%3C/text%3E%3C/svg%3E",
+      "sizes": "192x192",
+      "type": "image/svg+xml"
+    },
+    {
+      "src": "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512'%3E%3Crect width='512' height='512' fill='%230a0e1a'/%3E%3Ctext x='256' y='320' font-size='260' text-anchor='middle' fill='%2300ffcc'%3E🚁%3C/text%3E%3C/svg%3E",
+      "sizes": "512x512",
+      "type": "image/svg+xml"
+    }
+  ]
+}
