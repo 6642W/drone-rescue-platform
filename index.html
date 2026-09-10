@@ -6571,8 +6571,26 @@ function analyzeAndDrawRoute(route, onDone){
     segments.push(seg);
   }
 
-  // 规范化路网折线（LngLat对象 → [lng,lat]），供车辆行驶与无人机侦察共用同一份数据
-  var pathArr = normLngLatPath(route.path);
+  // 规范化路网折线：高德 JSAPI 2.0 的完整路径需由各路段 steps[*].path 拼接
+  // （LngLat对象 → [lng,lat]，去重相邻重复点），供车辆行驶与无人机侦察共用同一份数据
+  var pathArr = [];
+  for(var si=0; si<steps.length; si++){
+    var stepPts = normLngLatPath(steps[si].path);
+    for(var qi=0; qi<stepPts.length; qi++){
+      var lastPt = pathArr.length ? pathArr[pathArr.length-1] : null;
+      if(!lastPt || stepPts[qi][0]!==lastPt[0] || stepPts[qi][1]!==lastPt[1]){
+        pathArr.push(stepPts[qi]);
+      }
+    }
+  }
+  if(pathArr.length < 2 && route.path){
+    pathArr = normLngLatPath(route.path);
+  }
+  // 路网折线解析失败：转直线备用方案（保证流程闭环）
+  if(pathArr.length < 2){
+    drawFallbackRoute(onDone);
+    return;
+  }
 
   // 保存路线数据
   plannedRoute = {
