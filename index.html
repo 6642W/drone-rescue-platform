@@ -6564,7 +6564,8 @@ function planRescueRoute(onDone){
   }
 }
 
-// 分析路线并检测断道，绘制避障后的救援路线
+// 分析路线并检测断道（贴近实际：塌方/断道集中在灾区影响段，1~2处），
+// 再以断道点垂直偏移为途经点做第二次真实路网规划，绕开塌方段；侦察机飞抵终点后正式发布
 function analyzeAndDrawRoute(route, onDone){
   // 路线总距离(米)和时间(秒)
   var totalDist = route.distance;
@@ -6574,28 +6575,6 @@ function analyzeAndDrawRoute(route, onDone){
   var steps = route.steps || [];
   var segments = [];
   var blockedSegments = [];
-
-  // 模拟道路勘探：在步骤中随机检测"断道/塌方"（模拟无人机侦察结果）
-  // 真实场景由固定翼-04地形勘探无人机回传数据
-  for(var i=0;i<steps.length;i++){
-    var step = steps[i];
-    var roadName = step.road || ('无名道路'+(i+1));
-    var seg = {
-      index: i,
-      name: roadName,
-      distance: step.distance,
-      instruction: step.instruction,
-      path: step.path,
-      blocked: false,
-      bypass: null
-    };
-    // 模拟：约20%概率的路段被标记为"塌方/断道"（模拟无人机侦察发现）
-    if(steps.length > 2 && i>0 && i<steps.length-1 && Math.random() < 0.25){
-      seg.blocked = true;
-      blockedSegments.push(seg);
-    }
-    segments.push(seg);
-  }
 
   // 规范化路网折线：高德 JSAPI 2.0 的完整路径需由各路段 steps[*].path 拼接
   // （LngLat对象 → [lng,lat]，去重相邻重复点），供车辆行驶与无人机侦察共用同一份数据
@@ -6618,40 +6597,204 @@ function analyzeAndDrawRoute(route, onDone){
     return;
   }
 
-  // 保存路线数据
-  plannedRoute = {
-    distance: totalDist,
-    duration: totalTime,
-    segments: segments,
-    blockedCount: blockedSegments.length,
-    originalPath: route.path,
-    pathArr: pathArr
-  };
+  // —— 现实化断道检测：塌方/断道发生在灾区影响段（路线后45%），共1~2处 ——
+  var cum2 = 0;
+  var stepCums = [0];
+  for(var i=0;i<steps.length;i++){ cum2 += (steps[i].distance||0); stepCums.push(cum2); }
+  var zoneStart = totalDist * 0.55;
+  var zoneIdx = [];
+  for(i=1;i<steps.length-1;i++){ if(stepCums[i] >= zoneStart) zoneIdx.push(i); }
+  if(zoneIdx.length===0 && steps.length>2){ zoneIdx=[Math.floor(steps.length/2)]; }
+
+  var reasons = ['山体滑坡掩埋','桥梁受损封闭','路基塌陷'];
+  for(i=0;i<steps.length;i++){
+    segments.push({
+      index: i,
+      name: steps[i].road || ('无名道路'+(i+1)),
+      distance: steps[i].distance,
+      instruction: steps[i].instruction,
+      path: steps[i].path,
+      blocked: false,
+      reason: ''
+    });
+  }
+  // 从灾区影响段随机挑1~2处断道
+  var want = zoneIdx.length>=2 ? (Math.random()<0.5?1:2) : 1;
+  for(var w=0; w<want && zoneIdx.length>0; w++){
+    var pick = zoneIdx.splice(Math.floor(Math.random()*zoneIdx.length),1)[0];
+    segments[pick].blocked = true;
+    segments[pick].reason = reasons[w % reasons.length];
+    blockedSegments.push(segments[pick]);
+  }
+
+  // 为每处断道计算中点、垂直偏移途经点（供真实绕行规划）和应急弧线（兜底用）
+  for(i=0;i<blockedSegments.length;i++){
+    var bseg = blockedSegments[i];
+    var bpts = normLngLatPath(bseg.path);
+    if(bpts.length >= 2){
+      var p0=bpts[0], p1=bpts[bpts.length-1];
+      var mid=bpts[Math.floor(bpts.length/2)];
+      var cosL=Math.cos(mid[1]*Math.PI/180)||1e-9;
+      var ddx=(p1[0]-p0[0])*cosL, ddy=p1[1]-p0[1];
+      var segLen=Math.sqrt(ddx*ddx+ddy*ddy)||1e-9;
+      var ux=-ddy/segLen, uy=ddx/segLen;      // 单位法向量
+      var offM=600+Math.random()*300;          // 偏移600~900米
+      var via=[mid[0]+ux*offM/111320/cosL, mid[1]+uy*offM/110540];
+      bseg.midPt=mid;
+      bseg.via=via;
+      bseg.bypassPath=[
+        p0,
+        [p0[0]+(via[0]-mid[0])*0.5, p0[1]+(via[1]-mid[1])*0.5],
+        via,
+        [p1[0]+(via[0]-mid[0])*0.5, p1[1]+(via[1]-mid[1])*0.5],
+        p1
+      ];
+    }
+  }
 
   // 路线详情面板先显示"侦察中"，路线待侦察机抵达终点后正式绘制发布
   try{
     var rdEl = document.getElementById('rp-detail');
     if(rdEl) rdEl.innerHTML = '<div style="color:var(--hi);font-size:11px;line-height:1.8;">🛰️ 道路侦察中…<br>'
-      +'路网分析：总距离 '+(totalDist/1000).toFixed(2)+' km<br>'
-      +'侦察无人机沿道路飞抵终点后，正式发布救援路线</div>';
+      +'路网分析：全程 '+(totalDist/1000).toFixed(2)+' km，发现 '+blockedSegments.length+' 处断道/塌方<br>'
+      +'正在按真实路网计算绕行方案，侦察机飞抵终点后正式发布</div>';
   }catch(e){}
 
-  setStatus('🛰️ 路网分析完成：总距离 '+(totalDist/1000).toFixed(2)+' km，发现 '
-    +blockedSegments.length+' 处疑似断道。道路侦察无人机已起飞，抵达终点后正式发布路线…', 'var(--hi)');
+  setStatus('🛰️ 路网分析完成：发现 '+blockedSegments.length+' 处断道/塌方（'
+    +blockedSegments.map(function(s){return s.reason;}).join('、')+'），正在规划真实道路绕行…', 'var(--hi)');
 
-  // 道路侦察无人机先沿规划道路巡航，抵达终点后才绘制并发布救援路线
-  launchRoadSurveyAnimation(pathArr, function(){
-    drawRescueRoute(segments);
-    updateRouteDetail(totalDist, totalTime, segments, blockedSegments);
-    setStatus('✓ 侦察机飞抵终点，救援路线正式发布：总距离 '+(totalDist/1000).toFixed(2)
-      +' km，预计 '+(totalTime/60).toFixed(0)+' 分钟，绕行 '+blockedSegments.length+' 处断道。', 'var(--hi)');
-    if(onDone) onDone(pathArr, true);
-  });
+  // —— 发布最终路线（侦察机抵达终点后绘制） ——
+  function publish(final){
+    plannedRoute = {
+      distance: final.dist,
+      duration: final.time,
+      segments: segments,
+      blockedCount: blockedSegments.length,
+      originalPath: route.path,
+      pathArr: final.path,
+      detourExtra: Math.max(0, final.dist - totalDist),
+      detourMode: final.mode   // 'real'=真实道路绕行 / 'arc'=应急示意绕行
+    };
+    // 侦察机沿最终发布路线（含绕行）巡航，抵达终点后正式绘制发布
+    launchRoadSurveyAnimation(final.path, function(){
+      drawPublishedRoute(final.path, blockedSegments, final.mode==='arc');
+      updateRouteDetail(final.dist, final.time, blockedSegments, plannedRoute.detourExtra);
+      setStatus('✓ 侦察机飞抵终点，救援路线正式发布：全程 '+(final.dist/1000).toFixed(2)
+        +' km，预计 '+(final.time/60).toFixed(0)+' 分钟，已绕开 '+blockedSegments.length
+        +' 处断道（'+(final.mode==='real'?'真实道路绕行':'应急绕行线')
+        +'，多绕行约 '+Math.round(plannedRoute.detourExtra)+' m）。', 'var(--hi)');
+      if(onDone) onDone(final.path, true);
+    });
+  }
+
+  // 兜底：真实路网绕行失败 → 用偏移弧线替换断道段内部，保证车辆不驶入塌方段
+  function publishManualArc(){
+    var fPath = [];
+    function pushPt(pt){
+      var lp = fPath.length ? fPath[fPath.length-1] : null;
+      if(!lp || pt[0]!==lp[0] || pt[1]!==lp[1]) fPath.push(pt);
+    }
+    for(var i2=0;i2<steps.length;i2++){
+      if(segments[i2].blocked && segments[i2].bypassPath){
+        var arc = segments[i2].bypassPath;
+        for(var a2=0;a2<arc.length;a2++) pushPt(arc[a2]);
+      }else{
+        var pts2 = normLngLatPath(steps[i2].path);
+        for(var b2=0;b2<pts2.length;b2++) pushPt(pts2[b2]);
+      }
+    }
+    var extra = 0;
+    for(i2=0;i2<blockedSegments.length;i2++) extra += (blockedSegments[i2].distance||0)*0.15;
+    publish({dist: totalDist + extra, time: totalTime*1.12,
+             path: fPath.length>=2 ? fPath : pathArr, mode:'arc'});
+  }
+
+  // 真实路网绕行：以断道垂直偏移点为途经点重新驾车规划（scale用于重试时放大偏移）
+  function attemptAvoidance(scale, attempt){
+    try{
+      var vias=[];
+      for(var i2=0;i2<blockedSegments.length && i2<3;i2++){
+        var bs=blockedSegments[i2];
+        if(!bs.via || !bs.midPt) continue;
+        if(scale!==1){
+          vias.push(new AMap.LngLat(bs.midPt[0]+(bs.via[0]-bs.midPt[0])*scale,
+                                    bs.midPt[1]+(bs.via[1]-bs.midPt[1])*scale));
+        }else{
+          vias.push(new AMap.LngLat(bs.via[0], bs.via[1]));
+        }
+      }
+      if(vias.length===0){ publishManualArc(); return; }
+      var avoidDriving = new AMap.Driving({
+        policy: AMap.DrivingPolicy.LEAST_TIME, showTraffic:false, extensions:'all'
+      });
+      avoidDriving.search(
+        new AMap.LngLat(routeStart[0], routeStart[1]),
+        new AMap.LngLat(routeEnd[0], routeEnd[1]),
+        { waypoints: vias },
+        function(st2, res2){
+          try{
+            var ok = (st2==='complete' && res2 && res2.routes && res2.routes.length>0);
+            if(!ok){
+              if(attempt<1){ attemptAvoidance(scale*1.8, attempt+1); } else { publishManualArc(); }
+              return;
+            }
+            var r2 = res2.routes[0];
+            var fPath = [];
+            for(var a=0;a<r2.steps.length;a++){
+              var fp = normLngLatPath(r2.steps[a].path);
+              for(var b=0;b<fp.length;b++){
+                var lp = fPath.length ? fPath[fPath.length-1] : null;
+                if(!lp || fp[b][0]!==lp[0] || fp[b][1]!==lp[1]) fPath.push(fp[b]);
+              }
+            }
+            if(fPath.length < 2){
+              if(attempt<1){ attemptAvoidance(scale*1.8, attempt+1); } else { publishManualArc(); }
+              return;
+            }
+            // 校验：最终路线须离每个断道中点150m以上，否则放大偏移重试一次
+            var clear = true;
+            for(var c=0;c<blockedSegments.length;c++){
+              var mp = blockedSegments[c].midPt;
+              if(!mp) continue;
+              var minD = Infinity;
+              for(var d2=0;d2<fPath.length;d2++){
+                var dd = AMap.GeometryUtil.distance(mp, fPath[d2]);
+                if(dd < minD) minD = dd;
+              }
+              if(minD < 150){ clear=false; break; }
+            }
+            if(clear){
+              publish({dist:r2.distance, time:r2.time, path:fPath, mode:'real'});
+            }else if(attempt<1){
+              attemptAvoidance(scale*1.8, attempt+1);
+            }else{
+              // 重试后仍接近但已是真实路网最优绕行，接受（同样不驶入断道段主轴）
+              publish({dist:r2.distance, time:r2.time, path:fPath, mode:'real'});
+            }
+          }catch(e3){
+            console.warn('绕行规划回调异常:', e3);
+            publishManualArc();
+          }
+        }
+      );
+    }catch(e2){
+      console.warn('绕行规划异常:', e2);
+      publishManualArc();
+    }
+  }
+
+  if(blockedSegments.length > 0 && blockedSegments.some(function(s){return s.via;})){
+    attemptAvoidance(1, 0);
+  }else{
+    // 无断道：按原路线发布
+    publish({dist: totalDist, time: totalTime, path: pathArr, mode:'real'});
+  }
 }
 
-// 绘制救援路线（按路段分别着色：正常/断道/绕行）
-function drawRescueRoute(segments){
-  // 清除旧路线
+// 绘制正式发布的救援路线：最终可通行路线（青色实线，车辆/侦察机实际走的路）
+// + 断道点红色✕警示标记（表明绕开此处）+ 应急弧线绕行（真实路网规划失败时）
+function drawPublishedRoute(finalPts, blockedSegs, manual){
+  // 清除旧路线覆盖物（线与标记统一存放在rescueRoutePolyline便于清理）
   if(rescueRoutePolyline){
     for(var i=0;i<rescueRoutePolyline.length;i++){
       try{ map.remove(rescueRoutePolyline[i]); }catch(e){}
@@ -6659,69 +6802,56 @@ function drawRescueRoute(segments){
   }
   rescueRoutePolyline = [];
 
-  // 坐标规范化：兼容 LngLat 对象 / [lng,lat] 数组，统一输出 [lng,lat]
-  function norm(pt){
-    if(!pt) return null;
-    if(Array.isArray(pt)) return [pt[0], pt[1]];
-    if(typeof pt.getLng === 'function') return [pt.getLng(), pt.getLat()];
-    if(pt.lng !== undefined) return [pt.lng, pt.lat];
-    return null;
+  // 最终可通行路线（已绕开所有断道点）
+  try{
+    var main = new AMap.Polyline({
+      path: finalPts,
+      strokeColor: '#00ffcc',
+      strokeWeight: 4,
+      strokeOpacity: 0.9,
+      lineJoin: 'round',
+      lineCap: 'round',
+      zIndex: 50,
+      showDir: true
+    });
+    map.add(main);
+    rescueRoutePolyline.push(main);
+  }catch(e){ console.warn('绘制路线失败:', e); }
+
+  // 断道点：红色✕警示标记（塌方/断道位置，车辆已绕开）
+  for(var b=0;b<blockedSegs.length;b++){
+    var seg = blockedSegs[b];
+    if(!seg.midPt) continue;
+    try{
+      var mk = new AMap.Marker({
+        position: seg.midPt,
+        content: '<div style="transform:translate(-50%,-50%);text-align:center;white-space:nowrap;">'
+          +'<div style="width:22px;height:22px;line-height:22px;border-radius:50%;background:rgba(239,71,111,.95);'
+          +'border:2px solid #fff;color:#fff;font-weight:bold;font-size:13px;margin:0 auto;'
+          +'box-shadow:0 0 10px rgba(239,71,111,.8);">✕</div>'
+          +'<div style="font-size:10px;background:rgba(60,10,20,.92);border:1px solid #ef476f;color:#ff8fa8;'
+          +'padding:1px 5px;border-radius:3px;margin-top:2px;">'+(seg.reason||'断道')+'</div></div>',
+        zIndex: 70
+      });
+      map.add(mk);
+      rescueRoutePolyline.push(mk);
+    }catch(e){ console.warn('绘制断道标记失败:', e); }
   }
 
-  for(var i=0;i<segments.length;i++){
-    var seg = segments[i];
-    // 规范化路径为 [lng,lat][] 数组，避免混用 LngLat 对象导致渲染异常
-    var rawPath = seg.path || [];
-    var normPath = [];
-    for(var pi=0;pi<rawPath.length;pi++){
-      var np = norm(rawPath[pi]);
-      if(np) normPath.push(np);
-    }
-    if(normPath.length < 1) continue;
-
-    var color = seg.blocked ? '#ef476f' : '#00ffcc';
-    var dash = seg.blocked ? 'dashed' : 'solid';
-    var weight = seg.blocked ? 5 : 4;
-
-    try{
-      var line = new AMap.Polyline({
-        path: normPath,
-        strokeColor: color,
-        strokeWeight: weight,
-        strokeStyle: dash,
-        strokeOpacity: 0.9,
-        lineJoin:'round',
-        zIndex:50
-      });
-      map.add(line);
-      rescueRoutePolyline.push(line);
-    }catch(e){ console.warn('绘制路线段失败:', e); }
-
-    // 断道路段添加绕行示意线（橙色虚线，模拟绕过）
-    if(seg.blocked && normPath.length >= 2){
-      var midIdx = Math.floor(normPath.length / 2);
-      var midPt = normPath[midIdx];
-      var p0 = normPath[0];
-      var p1 = normPath[normPath.length-1];
-      var dx = p1[0] - p0[0];
-      var dy = p1[1] - p0[1];
-      var len = Math.sqrt(dx*dx + dy*dy) || 0.001;
-      var perpX = -dy / len * 0.004;
-      var perpY = dx / len * 0.004;
-      var bypassPath = [
-        p0,
-        [midPt[0] + perpX, midPt[1] + perpY],
-        p1
-      ];
+  // 应急弧线绕行（真实路网规划失败时的示意绕行线）
+  if(manual){
+    for(b=0;b<blockedSegs.length;b++){
+      var bp = blockedSegs[b].bypassPath;
+      if(!bp || bp.length < 2) continue;
       try{
         var bypassLine = new AMap.Polyline({
-          path: bypassPath,
+          path: bp,
           strokeColor: '#ff9f43',
           strokeWeight: 3,
           strokeStyle: 'dashed',
-          strokeOpacity: 0.8,
-          lineJoin:'round',
-          zIndex:49
+          strokeOpacity: 0.85,
+          lineJoin: 'round',
+          zIndex: 49
         });
         map.add(bypassLine);
         rescueRoutePolyline.push(bypassLine);
@@ -6730,28 +6860,25 @@ function drawRescueRoute(segments){
   }
 }
 
-// 更新路线详情面板
-function updateRouteDetail(dist, time, segments, blocked){
+// 更新路线详情面板（显示最终发布路线 + 断道点与真实绕行信息）
+function updateRouteDetail(dist, time, blocked, detourExtra){
   var html = '<div class="rd-distance">总距离：'+(dist/1000).toFixed(2)+' km</div>'
-    + '<div class="rd-time">预计时间：'+(time/60).toFixed(0)+' 分钟</div>'
-    + '<div style="margin:6px 0 4px;color:var(--text);font-weight:bold;font-size:11px;">途经路段：</div>';
-  for(var i=0;i<segments.length;i++){
-    var s = segments[i];
-    var distStr = s.distance >= 1000 ? (s.distance/1000).toFixed(1)+'km' : s.distance+'m';
-    var cls = s.blocked ? 'rd-bad' : 'rd-good';
-    var icon = s.blocked ? '⚠️' : '✓';
-    html += '<div class="rd-seg"><span class="'+cls+'">'+icon+' 第'+(i+1)+'段：'+s.name
-         + '（'+distStr+'）</span>';
-    if(s.blocked){
-      html += '<div class="rd-bypass" style="font-size:9px;margin-left:14px;">'
-           + '↪ 塌方/断道，已规划绕行路线（+约'+Math.round(s.distance*0.2)+'m）</div>';
+    + '<div class="rd-time">预计时间：'+(time/60).toFixed(0)+' 分钟</div>';
+  if(blocked && blocked.length > 0){
+    html += '<div style="margin:6px 0 4px;color:var(--text);font-weight:bold;font-size:11px;">断道/塌方点（已绕行）：</div>';
+    for(var i=0;i<blocked.length;i++){
+      var s = blocked[i];
+      var distStr = s.distance >= 1000 ? (s.distance/1000).toFixed(1)+'km' : s.distance+'m';
+      html += '<div class="rd-seg"><span class="rd-bad">⚠️ '+(s.reason||'断道')+'：'+s.name
+           + '（'+distStr+'）</span>'
+           + '<div class="rd-bypass" style="font-size:9px;margin-left:14px;">'
+           + '↪ 车辆经真实道路绕行通过，不再驶入该路段</div></div>';
     }
-    html += '</div>';
-  }
-  if(blocked.length > 0){
     html += '<div style="margin-top:6px;padding:4px;background:rgba(255,159,67,.1);'
          + 'border:1px solid var(--orange);border-radius:3px;color:var(--orange);font-size:9px;">'
-         + '🔍 数据来源：固定翼-04 地形勘探无人机实时回传</div>';
+         + '🔍 断道数据来源：固定翼-04 地形勘探无人机实时回传｜绕行全程 +'+Math.round(detourExtra||0)+' m</div>';
+  }else{
+    html += '<div style="margin-top:6px;color:var(--hi);font-size:10px;">✓ 全线道路通行正常，无需绕行</div>';
   }
   document.getElementById('rp-detail').innerHTML = html;
 }
