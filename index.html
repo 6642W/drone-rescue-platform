@@ -3366,11 +3366,11 @@ function dispatchTeamAlongRoute(team, path, totalDistM, convoyDelay){
     // 车辆颜色（车辙用）
     var trackColor = team.type==='ambulance' ? '#ff5c7a' : (team.type==='firetruck' ? '#ff9f43' : '#00ffcc');
 
-    // 创建车辙线（初始只有起点）
+    // 创建车辙线（以双点初始化，避免单点路径告警）
     var track = null;
     try{
       track = new AMap.Polyline({
-        path:[[team.lng, team.lat]],
+        path:[[team.lng, team.lat],[team.lng, team.lat]],
         strokeColor:trackColor, strokeWeight:3, strokeOpacity:0.55,
         lineJoin:'round', lineCap:'round', zIndex:60, showDir:true
       });
@@ -6829,10 +6829,10 @@ function launchRoadSurveyAnimation(path, onArrive){
     d.alt = 500;
     renderDronePanel();
 
-    // 清掉旧航迹，建新航迹
+    // 清掉旧航迹，建新航迹（以起点双点初始化，避免空路径告警）
     if(surveyTrailLine){ try{ map.remove(surveyTrailLine); }catch(e){} }
     surveyTrailLine = new AMap.Polyline({
-      path:[], strokeColor:'#ffd166', strokeWeight:2, strokeOpacity:0.7,
+      path:[[d.lng, d.lat],[d.lng, d.lat]], strokeColor:'#ffd166', strokeWeight:2, strokeOpacity:0.7,
       strokeStyle:'dashed', lineJoin:'round', zIndex:55
     });
     map.add(surveyTrailLine);
