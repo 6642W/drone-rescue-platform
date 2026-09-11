@@ -3370,7 +3370,7 @@ function dispatchTeamAlongRoute(team, path, totalDistM, convoyDelay){
     var track = null;
     try{
       track = new AMap.Polyline({
-        path:[[team.lng, team.lat],[team.lng, team.lat]],
+        path:[[team.lng, team.lat],[team.lng+0.000001, team.lat+0.000001]],
         strokeColor:trackColor, strokeWeight:3, strokeOpacity:0.55,
         lineJoin:'round', lineCap:'round', zIndex:60, showDir:true
       });
@@ -6959,7 +6959,7 @@ function launchRoadSurveyAnimation(path, onArrive){
     // 清掉旧航迹，建新航迹（以起点双点初始化，避免空路径告警）
     if(surveyTrailLine){ try{ map.remove(surveyTrailLine); }catch(e){} }
     surveyTrailLine = new AMap.Polyline({
-      path:[[d.lng, d.lat],[d.lng, d.lat]], strokeColor:'#ffd166', strokeWeight:2, strokeOpacity:0.7,
+      path:[[d.lng, d.lat],[d.lng+0.000001, d.lat+0.000001]], strokeColor:'#ffd166', strokeWeight:2, strokeOpacity:0.7,
       strokeStyle:'dashed', lineJoin:'round', zIndex:55
     });
     map.add(surveyTrailLine);
