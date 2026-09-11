@@ -5727,9 +5727,7 @@ function saveAllToOffline(){
     // 无人机（排除智能仿真自动起飞的临时无人机）
     clearStore('drones');
     saveToDB('drones', drones.filter(function(d){return !d.simAuto;}));
-    // 被困人员
-    clearStore('persons');
-    saveToDB('persons', persons);
+    // 被困人员为本次会话的仿真态势数据，不写入缓存（打开网站保持干净初始画面）
     // 物资申请
     clearStore('supplyRequests');
     saveToDB('supplyRequests', supplyRequests);
@@ -5771,7 +5769,7 @@ function loadOfflineData(){
 
     // 一次性清理：旧版本可能缓存了仿真测试残留（救援车辆/测试人员/测试无人机/边界），
     // 版本不匹配时清空全部作业态势，保证打开页面只有地图+全国编队
-    var STATE_VER = 'rescue_clean_v2';
+    var STATE_VER = 'rescue_clean_v3';
     var purgedStores = ['drones','persons','groundTeams','supplyRequests','supplyMissions',
                         'emergencyLandings','failureDrones','boundary','syncQueue'];
     function doLoad(){
@@ -5785,17 +5783,8 @@ function loadOfflineData(){
         renderDronePanel();
       }
     });
-    // 加载被困人员
-    loadFromDB('persons', function(data){
-      if(data && data.length > 0){
-        persons = data;
-        loadedCount += data.length;
-        for(var i=0; i<persons.length; i++){
-          addPersonMarker(persons[i]);
-        }
-        renderPersonList();
-      }
-    });
+    // 加载被困人员：人员为本次会话的仿真态势数据，不跨会话恢复，
+    // 保证打开网站只有地图+全国编队节点（人员仅在无人机探查发现后出现）
     // 加载物资申请
     loadFromDB('supplyRequests', function(data){
       if(data && data.length > 0){
