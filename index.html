@@ -6628,18 +6628,25 @@ function analyzeAndDrawRoute(route, onDone){
     pathArr: pathArr
   };
 
-  // 绘制路线（正常路段青色，断道红色标注，绕行橙色）
-  drawRescueRoute(segments);
-  // 更新路线详情面板
-  updateRouteDetail(totalDist, totalTime, segments, blockedSegments);
+  // 路线详情面板先显示"侦察中"，路线待侦察机抵达终点后正式绘制发布
+  try{
+    var rdEl = document.getElementById('rp-detail');
+    if(rdEl) rdEl.innerHTML = '<div style="color:var(--hi);font-size:11px;line-height:1.8;">🛰️ 道路侦察中…<br>'
+      +'路网分析：总距离 '+(totalDist/1000).toFixed(2)+' km<br>'
+      +'侦察无人机沿道路飞抵终点后，正式发布救援路线</div>';
+  }catch(e){}
 
-  setStatus('✓ 路线规划完成：总距离 '+(totalDist/1000).toFixed(2)+' km，'
-    +'预计 '+(totalTime/60).toFixed(0)+' 分钟，'
-    +'发现 '+blockedSegments.length+' 处断道，已自动规划绕行方案。', 'var(--hi)');
+  setStatus('🛰️ 路网分析完成：总距离 '+(totalDist/1000).toFixed(2)+' km，发现 '
+    +blockedSegments.length+' 处疑似断道。道路侦察无人机已起飞，抵达终点后正式发布路线…', 'var(--hi)');
 
-  // 路线画好后，道路侦察无人机自动起飞，沿规划道路从起点巡航到终点
-  launchRoadSurveyAnimation(pathArr);
-  if(onDone) onDone(pathArr, true);
+  // 道路侦察无人机先沿规划道路巡航，抵达终点后才绘制并发布救援路线
+  launchRoadSurveyAnimation(pathArr, function(){
+    drawRescueRoute(segments);
+    updateRouteDetail(totalDist, totalTime, segments, blockedSegments);
+    setStatus('✓ 侦察机飞抵终点，救援路线正式发布：总距离 '+(totalDist/1000).toFixed(2)
+      +' km，预计 '+(totalTime/60).toFixed(0)+' 分钟，绕行 '+blockedSegments.length+' 处断道。', 'var(--hi)');
+    if(onDone) onDone(pathArr, true);
+  });
 }
 
 // 绘制救援路线（按路段分别着色：正常/断道/绕行）
@@ -6795,10 +6802,12 @@ var surveyFlying = false;
 var surveyTrailLine = null;
 
 // 道路侦察无人机沿规划道路飞行：先从当前位置飞到路线起点，再沿道路路径飞到终点
-function launchRoadSurveyAnimation(path){
+// onArrive: 抵达终点（或流程异常放行）后的回调，用于"抵达后才发布路线"
+function launchRoadSurveyAnimation(path, onArrive){
+  function done(){ if(onArrive){ try{ onArrive(); }catch(e){} } }
   try{
-    if(!path || path.length < 2 || !map) return;
-    if(surveyFlying) return;
+    if(!path || path.length < 2 || !map){ done(); return; }
+    if(surveyFlying){ done(); return; }  // 已有侦察机在飞：直接放行回调，避免流程卡住
 
     // 选择勘探机：待命的勘探固定翼 → 任意待命固定翼 → 任意固定翼 → 都没有则自动起飞一架
     var d = drones.find(function(x){return x.status==='standby' && x.type==='固定翼' && x.task.indexOf('勘探')>=0;})
@@ -6830,9 +6839,9 @@ function launchRoadSurveyAnimation(path){
 
     var cum = buildCumulativeDist(path);
     var total = cum[cum.length-1] || 1;
-    // 巡航 220km/h 压缩：5~18秒
-    var cruiseDur = Math.min(18000, Math.max(5000, (total/(220*1000/3600))/40*1000));
-    var takeoffDur = 1400;
+    // 巡航压缩提速（侦察机飞快些）：2.5~8秒完成全程巡航
+    var cruiseDur = Math.min(8000, Math.max(2500, (total/(260*1000/3600))/90*1000));
+    var takeoffDur = 1000;
     var startTs = Date.now();
     var fromPos = [d.lng, d.lat];
     var lastTrailTs = 0;
@@ -6893,15 +6902,18 @@ function launchRoadSurveyAnimation(path){
           renderDronePanel();
           var blocked = plannedRoute ? plannedRoute.blockedCount : 0;
           setStatus('✓ '+d.id+' 已沿道路飞抵终点，道路侦察完成'+(blocked?'，发现 '+blocked+' 处断道/塌方，已生成绕行方案':'，全线道路通行正常')+'。','var(--hi)');
+          done();  // 侦察抵达：此时才正式发布路线
         }
       }catch(e){
         console.warn('道路侦察飞行动画异常:', e);
         surveyFlying = false;
+        done();
       }
     })();
   }catch(e){
     console.warn('launchRoadSurveyAnimation异常:', e);
     surveyFlying = false;
+    done();
   }
 }
 
