@@ -4191,6 +4191,7 @@ var quakeCases = [
     id:'QK-WENCHUAN', featured:true, icon:'🏔️',
     name:'汶川特大地震', sub:'2008 · 四川汶川映秀 · 本库重点案例',
     place:'四川汶川映秀', center:[103.4840,31.0060], persons:6,
+    startCity:'都江堰市', startCenter:[103.6470,30.9880],
     mag:'Ms 8.0', magLevel:'extreme',
     summary:'最高烈度<b>Ⅺ度</b>，遇难及失踪约<b>8.7万人</b>、受伤37.5万余人，受灾面积约<b>50万平方公里</b>。震中通信全断、通往灾区的国道隧道全面垮塌，救援部队最初只能徒步进入，<b>首批灾情信息延误超过10小时</b>。',
     detail:{
@@ -4206,6 +4207,7 @@ var quakeCases = [
     id:'QK-TANGSHAN', icon:'🏙️',
     name:'唐山地震', sub:'1976 · 河北唐山 · 历史镜鉴',
     place:'河北唐山', center:[118.1900,39.6300], persons:5,
+    startCity:'天津市', startCenter:[117.2000,39.0850],
     mag:'Ms 7.8',
     summary:'最高烈度<b>Ⅺ度</b>，<b>24.2万余人</b>遇难、16.4万人重伤，百年工业城市顷刻夷平。',
     detail:{
@@ -4219,6 +4221,7 @@ var quakeCases = [
     id:'QK-YUSHU', icon:'🏔️',
     name:'玉树地震', sub:'2010 · 青海玉树 · 高原高寒',
     place:'青海玉树结古镇', center:[97.0180,33.0040], persons:4,
+    startCity:'西宁市', startCenter:[101.7780,36.6230],
     mag:'Ms 7.1',
     summary:'最高烈度<b>Ⅸ度</b>，<b>2698人</b>遇难，高海拔（约3700m）高寒缺氧，外省救援队长途机动困难。',
     detail:{
@@ -4232,6 +4235,7 @@ var quakeCases = [
     id:'QK-LUSHAN', icon:'⛰️',
     name:'芦山地震', sub:'2013 · 四川雅安 · 无人机首秀',
     place:'四川雅安芦山', center:[102.9280,30.3780], persons:4,
+    startCity:'雅安市', startCenter:[103.0350,30.0100],
     mag:'Ms 7.0',
     summary:'最高烈度<b>Ⅸ度</b>，<b>196人</b>遇难，山区次生滑坡密集，道路多处掩埋。',
     detail:{
@@ -4245,6 +4249,7 @@ var quakeCases = [
     id:'QK-JIUZHAIGOU', icon:'🏞️',
     name:'九寨沟地震', sub:'2017 · 四川阿坝 · 旅游区疏散',
     place:'四川阿坝九寨沟', center:[103.8200,33.2000], persons:3,
+    startCity:'绵阳市', startCenter:[104.6650,31.4680],
     mag:'Ms 7.0',
     summary:'最高烈度<b>Ⅸ度</b>，<b>25人</b>遇难，恰逢旅游旺季，<b>6万余名游客</b>需紧急疏散。',
     detail:{
@@ -4258,6 +4263,7 @@ var quakeCases = [
     id:'QK-LUDING', icon:'🌉',
     name:'泸定地震', sub:'2022 · 四川甘孜 · 堰塞湖险情',
     place:'四川甘孜泸定磨西镇', center:[102.2300,29.6900], persons:4,
+    startCity:'康定市', startCenter:[101.9620,30.0490],
     mag:'Ms 6.8',
     summary:'最高烈度<b>Ⅸ度</b>，<b>93人</b>遇难，湾东河堰塞湖险情、震中道路桥梁中断。',
     detail:{
@@ -4271,6 +4277,7 @@ var quakeCases = [
     id:'QK-JISHISHAN', icon:'❄️',
     name:'积石山地震', sub:'2023 · 甘肃临夏 · 寒冬夜间',
     place:'甘肃临夏积石山', center:[102.7900,35.6600], persons:4,
+    startCity:'临夏市', startCenter:[103.2100,35.5990],
     mag:'Ms 6.2',
     summary:'最高烈度<b>Ⅷ度</b>，<b>151人</b>遇难，深夜零下十几度，保暖成为与搜救并列的第一要务。',
     detail:{
@@ -4354,7 +4361,7 @@ function runQuakeDrill(id){
     for(var i=0;i<quakeCases.length;i++){ if(quakeCases[i].id===id){ q = quakeCases[i]; break; } }
     if(!q || !q.center) return;
     showConfirm('地震案例模拟演练',
-      '基于【'+q.name+'】历史灾情推演的空地协同演练。\n\n震中位置：'+q.place+'\n震级：'+q.mag+'\n\n平台将自动执行：\n• 无人机编队飞赴震中并展开部署\n• 自动设置应急迫降点与救援集合点\n• 无人机搜查发现被困人员（'+q.persons+'名）\n• 智能匹配救援队/救护车/消防车力量\n• 道路侦察无人机起飞探明路线\n• 智能规划救援路线（自动绕开断道塌方段）\n• 地面救援车队沿规划道路开进\n\n是否开始演练？', function(confirmed){
+      '基于【'+q.name+'】历史灾情推演的空地协同演练。\n\n震中位置：'+q.place+'\n震级：'+q.mag+'\n救援集结出发地：'+(q.startCity||'震中附近集结区')+'\n\n平台将自动执行：\n• 无人机编队飞赴震中并展开部署\n• 自动设置应急迫降点与救援集合点\n• 无人机搜查发现被困人员（'+q.persons+'名）\n• 智能匹配救援队/救护车/消防车力量\n• 道路侦察无人机起飞探明路线\n• 智能规划救援路线（自动绕开断道塌方段）\n• 地面救援车队自'+(q.startCity||'集结区')+'沿规划道路开进\n\n是否开始演练？', function(confirmed){
       if(!confirmed) return;
       closeQuakePanel();
       // 构建演练动态模板：震中 = 案例真实坐标
@@ -4392,15 +4399,15 @@ function runQuakeDrill(id){
       };
       // 1) 加载演练模板（部署编队/人员/视图），autoTasks 将在 +1.5s 自动搜查
       doLoadPlanTemplate(dynTpl);
-      // 2) 设置救援路线：集结出发地 → 震中（约20km）。
+      // 2) 设置救援路线：从附近市级城市集结出发 → 震中。
       //    发现被困人员后 autoDispatchGroundRescue 会自动触发道路侦察+规划，
-      //    路线发布后车队在起点列队沿道路开进。
+      //    路线发布后车队在起点（城市集结地）列队沿道路开进。
       setTimeout(function(){
         try{
-          var staging = [q.center[0]+0.16, q.center[1]+0.10];
-          setRouteStart(staging[0], staging[1]);
+          var st = q.startCenter || [q.center[0]+0.16, q.center[1]+0.10];
+          setRouteStart(st[0], st[1]);
           setRouteEnd(q.center[0], q.center[1]);
-          setStatus('🚨 '+q.name+'演练启动：无人机搜查进行中，发现被困人员后将自动侦察道路、规划路线并派出地面救援车队','var(--hi)');
+          setStatus('🚨 '+q.name+'演练启动：救援力量已自'+(q.startCity||'集结区')+'集结，无人机搜查进行中，发现被困人员后将自动侦察道路、规划路线并派车队开进','var(--hi)');
         }catch(rtErr){
           console.warn('演练路线设置异常:', rtErr);
         }
