@@ -4360,7 +4360,8 @@ function runQuakeDrill(id){
       // 构建演练动态模板：震中 = 案例真实坐标
       // 人员 code 使用 NEED_CODE 键：1受伤需医疗 2缺水 3缺粮 4被困待救援
       var codes = ['1','4','1','3','4','2'];
-      var offs = [[0.008,0.006],[-0.009,0.004],[0.005,-0.007],[-0.006,-0.005],[0.011,-0.002],[-0.002,0.010]];
+      // 人员沿部署环内侧摆放（半径约0.012°），使搜救机巡航时能快速扫到
+      var offs = [[0.0104,0.006],[0,0.012],[-0.0104,0.006],[-0.0104,-0.006],[0,-0.012],[0.0104,-0.006]];
       var presetPersons = [];
       for(var p=0;p<q.persons && p<offs.length;p++){
         presetPersons.push({
@@ -4379,9 +4380,9 @@ function runQuakeDrill(id){
         zoom: 11,
         droneConfig: [
           {type:'固定翼', task:'5G通信基站覆盖', status:'空中值守', alt:300},
-          {type:'固定翼', task:'地形与道路勘探', status:'空中值守', alt:250},
-          {type:'固定翼', task:'热成像人员搜救', status:'空中值守', alt:200},
           {type:'固定翼', task:'灾情航拍建模', status:'空中值守', alt:280},
+          {type:'固定翼', task:'人员搜救', status:'空中值守', alt:400},
+          {type:'固定翼', task:'人员搜救', status:'空中值守', alt:350},
           {type:'倾转垂直起降', task:'物资投送(模块化舱)', status:'地面待命', alt:0},
           {type:'倾转垂直起降', task:'应急药品投送', status:'地面待命', alt:0}
         ],
