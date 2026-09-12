@@ -2459,14 +2459,29 @@ function initMap(){
 
   // 地图加载完成：初始只绘制全国部署节点（保持画面干净：只有地图+编队）
   map.on('complete', function(){
-    drawNationalFleets();
-    fleetsDrawn = true;
+    if(!fleetsDrawn){
+      drawNationalFleets();
+      fleetsDrawn = true;
+    }
     // 禁用高德默认POI点击弹窗（防止出现含"详情"字样的默认InfoWindow干扰界面）
     try{
       map.setFeatures(['bg','road','building','point']);
     }catch(e){}
-    setStatus('3D地图已加载，当前为「全国部署视图」：实时展示34省无人机编队分布。点击底部「灾区作业视图」可切换至灾区局部作业，或点击「部署指挥面板」进行跨省增援调度。','var(--hi)');
+    setStatus('3D地图已加载，当前为「全国部署视图」：实时展示34省无人机编队分布。点击底部「指挥调度功能区」把手展开调度，或点击「灾区作业视图」进入灾区局部作业。','var(--hi)');
   });
+
+  // 兜底：弱网/后台标签页等情况下瓦片 complete 事件可能延迟或不触发，
+  // 定时检查，确保全国编队节点一定会画出来（重复调用内部有去重，无副作用）
+  setTimeout(function(){
+    if(!fleetsDrawn){
+      try{ drawNationalFleets(); fleetsDrawn = true; }catch(e){}
+    }
+  }, 2500);
+  setTimeout(function(){
+    if(!fleetsDrawn){
+      try{ drawNationalFleets(); fleetsDrawn = true; }catch(e){}
+    }
+  }, 6000);
 
   // 地图点击事件：根据编辑模式分发
   map.on('click', function(e){
