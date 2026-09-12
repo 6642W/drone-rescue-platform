@@ -799,6 +799,42 @@
     font-size:9px;padding:1px 5px;border-radius:8px;background:var(--panel);color:var(--hi);
   }
 
+  /* 地震案例库面板 */
+  .quake-scroll{max-height:420px;overflow-y:auto;padding:4px 8px 8px;}
+  .quake-card{
+    background:var(--panel2);border:1px solid var(--border);border-radius:5px;
+    margin-bottom:8px;overflow:hidden;transition:border-color .2s;
+  }
+  .quake-card:hover{border-color:var(--hi);}
+  .quake-card.qk-featured{border-color:var(--orange);}
+  .quake-card .qk-head{display:flex;align-items:center;gap:8px;padding:8px 10px;cursor:pointer;}
+  .quake-card .qk-name{font-size:12px;font-weight:bold;color:var(--text);flex:1;}
+  .quake-card .qk-name small{font-weight:normal;color:var(--dim);font-size:9px;margin-left:4px;}
+  .quake-card .qk-mag{
+    font-size:11px;font-weight:bold;color:#fff;background:var(--red);
+    padding:2px 7px;border-radius:10px;white-space:nowrap;
+  }
+  .quake-card .qk-summary{font-size:10px;color:var(--dim);line-height:1.6;padding:0 10px 8px;}
+  .quake-card .qk-summary b{color:var(--orange);}
+  .quake-card .qk-detail{
+    display:none;border-top:1px solid var(--border);padding:8px 10px;
+    background:rgba(0,0,0,.18);font-size:10px;color:var(--text);line-height:1.7;
+  }
+  .quake-card .qk-detail.open{display:block;}
+  .quake-card .qk-detail .qk-sec{margin-bottom:7px;}
+  .quake-card .qk-detail .qk-sec-t{font-weight:bold;color:var(--hi);margin-bottom:2px;}
+  .quake-card .qk-detail .qk-sec-t.orange{color:var(--orange);}
+  .quake-card .qk-detail .qk-sec-t.red{color:var(--red);}
+  .quake-card .qk-detail .qk-sec-t.green{color:#2ed573;}
+  .quake-card .qk-detail div{color:var(--dim);}
+  .quake-card .qk-detail b{color:var(--text);}
+  .quake-card .qk-load{
+    display:block;width:100%;margin-top:8px;padding:6px 0;text-align:center;
+    background:linear-gradient(135deg,#ff9f43,#ff6b6b);border:none;border-radius:4px;
+    color:#fff;font-size:11px;font-weight:bold;cursor:pointer;
+  }
+  .quake-card .qk-load:hover{filter:brightness(1.12);}
+
   /* 权限/角色面板 */
   .role-selector{
     display:flex;gap:6px;padding:8px 10px;background:var(--panel2);
@@ -1546,7 +1582,7 @@
   <div class="side-tabs-right">
     <button class="side-tab" data-drawer="person" onclick="toggleDrawer('right','person')"><span class="tab-icon">👥</span>被困人员</button>
     <button class="side-tab" data-drawer="ground" onclick="toggleDrawer('right','ground')"><span class="tab-icon">🚒</span>地面救援</button>
-    <button class="side-tab" data-drawer="nav" onclick="toggleDrawer('right','nav')"><span class="tab-icon">🧭</span>导航</button>
+    <button class="side-tab" id="tab-quake" onclick="openQuakePanel()" title="历年地震灾害案例与空地协同救援预案"><span class="tab-icon">🌋</span>地震案例</button>
     <button class="side-tab" data-drawer="route" onclick="toggleDrawer('route')"><span class="tab-icon">🗺️</span>路线设计</button>
   </div>
 
@@ -1788,6 +1824,20 @@
     </div>
     <div class="modal-btns">
       <button class="btn-modal-cancel" onclick="closeTemplatePanel()">关闭</button>
+    </div>
+  </div>
+</div>
+
+<!-- 历年地震灾害案例库弹窗 -->
+<div id="quake-modal" class="modal-mask" style="display:none;">
+  <div class="modal-box" style="max-width:680px;">
+    <div class="modal-title">🌋 历年地震灾害案例库 · 空地协同救援预案</div>
+    <div style="font-size:11px;color:var(--dim);margin-bottom:10px;line-height:1.5;">
+      收录我国历年重特大地震灾害，展示震级、烈度、伤亡与受灾程度，并给出<b style="color:var(--hi);">无人机编队 × 地面搜救力量</b>协同救援预案——无人机先导侦察、空中通信、精准投送，与地面搜救、医疗力量形成"空地一体"救援体系，大幅缩短黄金72小时内的响应时间。点击卡片展开详细预案。
+    </div>
+    <div class="quake-scroll" id="quake-list"></div>
+    <div class="modal-btns">
+      <button class="btn-modal-cancel" onclick="closeQuakePanel()">关闭</button>
     </div>
   </div>
 </div>
@@ -4134,6 +4184,170 @@ function closeTemplatePanel(){
     console.warn('closeTemplatePanel异常:', e);
   }
 }
+
+// ================= 历年地震灾害案例库（无人机×搜救协同预案） =================
+var quakeCases = [
+  {
+    id:'QK-WENCHUAN', featured:true, icon:'🏔️',
+    name:'汶川特大地震', sub:'2008 · 四川汶川映秀 · 本库重点案例',
+    mag:'Ms 8.0', magLevel:'extreme',
+    summary:'最高烈度<b>Ⅺ度</b>，遇难及失踪约<b>8.7万人</b>、受伤37.5万余人，受灾面积约<b>50万平方公里</b>。震中通信全断、通往灾区的国道隧道全面垮塌，救援部队最初只能徒步进入，<b>首批灾情信息延误超过10小时</b>。',
+    detail:{
+      extent:'灾区覆盖汶川、北川、绵竹、青川等极重灾区10县，房屋大面积倒塌，山体滑坡、堰塞湖等次生灾害链齐发，通信、电力、道路"三断"。',
+      drone:'① <b>空中通信中继</b>：固定翼搭载5G基站盘旋覆盖"三断"孤岛，被困人员手机可外呼/回传北斗报文；② <b>先导航拍建模</b>：30分钟级回传震中高清影像与三维模型，替代徒步侦察；③ <b>道路与堰塞湖勘探</b>：逐段排查开进路线、监测堰塞湖险情，为地面部队标绘安全通道；④ <b>热成像+AI生命搜寻</b>：夜间对废墟表面测温，标记疑似生命点；⑤ <b>应急空投</b>：倾转旋翼机向道路中断村组投送药品、血样、干粮与对讲机。'
+      ,
+      ground:'消防搜救队与部队携搜救犬、雷达/音频生命探测仪逐点破拆；医疗队依托无人机标定的安全降落区开设野战医院；道路抢通队按无人机勘探结果分段掘进。'
+      ,
+      gain:'推演对比：传统模式下首份灾区全景信息约需12~24小时；空地协同后<b>30分钟级</b>获得灾情图、<b>2小时级</b>恢复受灾区对外通信、生命点平均定位时间由小时级压缩至<b>10分钟级</b>，黄金72小时的有效搜救时长显著增加。'
+    }
+  },
+  {
+    id:'QK-TANGSHAN', icon:'🏙️',
+    name:'唐山地震', sub:'1976 · 河北唐山 · 历史镜鉴',
+    mag:'Ms 7.8',
+    summary:'最高烈度<b>Ⅺ度</b>，<b>24.2万余人</b>遇难、16.4万人重伤，百年工业城市顷刻夷平。',
+    detail:{
+      extent:'全市94%民用建筑、78%工业厂房倒塌，铁路、桥梁、通信枢纽尽毁，外援部队靠人力侦察灾情。',
+      drone:'（当年尚无无人机技术——历史局限）以今推演：固定翼1小时内完成全城正射影像建模，按建筑倒塌密度自动排序搜救优先级；通信中继机恢复指挥链路，避免各救援队伍"盲进"。',
+      ground:'十余万救援力量徒手挖掘为主；若配合现代地面力量——雷达生命仪、搜救犬、重型破拆装备按无人机标定的重点区梯次投入。',
+      gain:'历史镜鉴：灾情信息获取能力决定救援效率。这正是本项目"无人机先导侦察+地面精准救援"协同模式的价值来源。'
+    }
+  },
+  {
+    id:'QK-YUSHU', icon:'🏔️',
+    name:'玉树地震', sub:'2010 · 青海玉树 · 高原高寒',
+    mag:'Ms 7.1',
+    summary:'最高烈度<b>Ⅸ度</b>，<b>2698人</b>遇难，高海拔（约3700m）高寒缺氧，外省救援队长途机动困难。',
+    detail:{
+      extent:'结古镇85%以上民房倒塌或受损，高原反应严重制约外来救援人员体能与机械效率。',
+      drone:'① 高原型固定翼执行全域航拍，规避人员高原作业风险；② 通信中继恢复结古镇与外界的联络；③ 向偏远牧区投送氧气、御寒物资与药品——高原地面机动慢，空中投送优势极大。',
+      ground:'本地驻军与武警第一时间自救互救，外省医疗队按无人机灾评结果分批开设救治点，避免盲目蜂拥。',
+      gain:'高原环境下"人岗适配"矛盾突出，无人机替代高危侦察科目、减少地面人员无效攀爬，救援人员高原暴露时长明显下降。'
+    }
+  },
+  {
+    id:'QK-LUSHAN', icon:'⛰️',
+    name:'芦山地震', sub:'2013 · 四川雅安 · 无人机首秀',
+    mag:'Ms 7.0',
+    summary:'最高烈度<b>Ⅸ度</b>，<b>196人</b>遇难，山区次生滑坡密集，道路多处掩埋。',
+    detail:{
+      extent:'宝兴、芦山两县大量民房倒塌，震中宝兴"孤岛"状态数小时，滑坡掩埋进镇道路。',
+      drone:'国内地震救援中<b>首次成建制使用无人机</b>：快速航拍滑坡体与道路断点，生成灾情影像供指挥部决策，成为此后历次地震"无人机先导"模式的起点。',
+      ground:'道路抢通按无人机标注的断点序贯推进；搜救队重点排查无人机发现的结构性倒塌房屋。',
+      gain:'相比汶川，芦山响应组织性显著提升——无人机灾评影像直接支撑了"科学救援、有序救援"决策。'
+    }
+  },
+  {
+    id:'QK-JIUZHAIGOU', icon:'🏞️',
+    name:'九寨沟地震', sub:'2017 · 四川阿坝 · 旅游区疏散',
+    mag:'Ms 7.0',
+    summary:'最高烈度<b>Ⅸ度</b>，<b>25人</b>遇难，恰逢旅游旺季，<b>6万余名游客</b>需紧急疏散。',
+    detail:{
+      extent:'景区道路落石、部分栈道损毁，沟内游客分散在多个景点，人工排查效率低。',
+      drone:'① 对景区全域热成像扫描，快速定位滞留游客聚集点；② 盘旋喊话与照明引导疏散方向；③ 对熊猫海、五花海等高坝湖体开展堤坝隐患巡查。',
+      ground:'地面车队按无人机引导的"安全疏散走廊"分段接驳，公安与消防逐点清查住宿点。',
+      gain:'广域找人场景下，无人机热成像将游客清点核实时间由"逐点步行排查"压缩为"一架次覆盖数平方公里"，实现6万余人快速有序撤出。'
+    }
+  },
+  {
+    id:'QK-LUDING', icon:'🌉',
+    name:'泸定地震', sub:'2022 · 四川甘孜 · 堰塞湖险情',
+    mag:'Ms 6.8',
+    summary:'最高烈度<b>Ⅸ度</b>，<b>93人</b>遇难，湾东河堰塞湖险情、震中道路桥梁中断。',
+    detail:{
+      extent:'磨西镇、得妥镇房屋倒塌严重，大渡河支流因山体滑坡形成堰塞湖，下游面临淹没风险。',
+      drone:'① 对堰塞湖坝体与库容全天候监测，回传水位与溃坝风险数据；② 侦察震中道路断点，为"绳索横渡+舟艇"开进方案提供影像依据；③ 向失联村组空投报信卡与急救包。',
+      ground:'救援队依无人机影像绕行滑坡体开辟生命通道；水文组在坝体安全区架设监测设备。',
+      gain:'次生灾害链（震→滑坡→堰塞湖）场景下，无人机持续空中值守让指挥部"看得见险情"，地面力量敢于在有限窗口内强攻推进。'
+    }
+  },
+  {
+    id:'QK-JISHISHAN', icon:'❄️',
+    name:'积石山地震', sub:'2023 · 甘肃临夏 · 寒冬夜间',
+    mag:'Ms 6.2',
+    summary:'最高烈度<b>Ⅷ度</b>，<b>151人</b>遇难，深夜零下十几度，保暖成为与搜救并列的第一要务。',
+    detail:{
+      extent:'砖混与土坯房倒塌集中，夜间发生使群众多在室内被埋；低温显著缩短被埋压人员的生存窗口。',
+      drone:'① 夜间热成像快速标定人员密集被埋区，引导灯光照明；② 向安置点空投棉帐篷、棉被、取暖燃料；③ 监测安置点人员密度与火源隐患。',
+      ground:'搜救与安置并重：地面力量按无人机标定区域破拆救人，同时大规模开设取暖安置点，防止冻伤二次伤害。',
+      gain:'冬季地震"黄金72小时"实际更短，无人机投送使御寒物资在震后数小时内覆盖偏远村组，为搜救争取了时间。'
+    }
+  }
+];
+
+// 打开地震案例库弹窗
+function openQuakePanel(){
+  try{
+    renderQuakeList();
+    document.getElementById('quake-modal').style.display = 'flex';
+    var tab = document.getElementById('tab-quake');
+    if(tab) tab.classList.add('active');
+    setStatus('已打开历年地震灾害案例库：了解灾害程度与空地协同救援预案','var(--hi)');
+  }catch(e){
+    console.warn('openQuakePanel异常:', e);
+  }
+}
+
+// 关闭地震案例库弹窗
+function closeQuakePanel(){
+  try{
+    document.getElementById('quake-modal').style.display = 'none';
+    var tab = document.getElementById('tab-quake');
+    if(tab) tab.classList.remove('active');
+  }catch(e){
+    console.warn('closeQuakePanel异常:', e);
+  }
+}
+
+// 渲染地震案例列表（点击卡片展开/收起详细预案）
+function renderQuakeList(){
+  try{
+    var box = document.getElementById('quake-list');
+    if(!box) return;
+    var html = '';
+    for(var i=0;i<quakeCases.length;i++){
+      var q = quakeCases[i];
+      var d = q.detail;
+      html += '<div class="quake-card'+(q.featured?' qk-featured':'')+'">'
+        + '<div class="qk-head" onclick="toggleQuakeDetail(\''+q.id+'\')">'
+        +   '<span style="font-size:18px;">'+q.icon+'</span>'
+        +   '<span class="qk-name">'+q.name+'<small>'+q.sub+'</small></span>'
+        +   '<span class="qk-mag"'+(q.magLevel==='extreme'?' style="background:var(--red);font-size:12px;padding:3px 9px;box-shadow:0 0 8px rgba(239,71,111,.6);"':'')+'>'+q.mag+'</span>'
+        + '</div>'
+        + '<div class="qk-summary">'+q.summary+'</div>'
+        + '<div class="qk-detail'+(q.featured?' open':'')+'" id="qkd-'+q.id+'">'
+        +   '<div class="qk-sec"><div class="qk-sec-t orange">🏚 灾害程度</div><div>'+d.extent+'</div></div>'
+        +   '<div class="qk-sec"><div class="qk-sec-t">🛸 无人机编队作用</div><div>'+d.drone+'</div></div>'
+        +   '<div class="qk-sec"><div class="qk-sec-t red">🚒 地面搜救力量作用</div><div>'+d.ground+'</div></div>'
+        +   '<div class="qk-sec"><div class="qk-sec-t green">✚ 空地协同增益</div><div>'+d.gain+'</div></div>'
+        +   (q.featured?'<button class="qk-load" onclick="loadQuakeDrill()">🚀 一键加载「汶川式」地震空地协同演练预案</button>':'')
+        + '</div>'
+        + '</div>';
+    }
+    box.innerHTML = html;
+  }catch(e){
+    console.warn('renderQuakeList异常:', e);
+  }
+}
+
+// 展开/收起案例详情
+function toggleQuakeDetail(id){
+  try{
+    var el = document.getElementById('qkd-'+id);
+    if(el) el.classList.toggle('open');
+  }catch(e){}
+}
+
+// 一键加载汶川式地震协同演练预案（复用预案模板库中的地震救援预案 TPL-001）
+function loadQuakeDrill(){
+  try{
+    closeQuakePanel();
+    loadPlanTemplate('TPL-001');
+  }catch(e){
+    console.warn('loadQuakeDrill异常:', e);
+  }
+}
+
 
 // 渲染预案模板网格
 function renderTemplateGrid(){
@@ -9002,6 +9216,9 @@ function buildCommandReply(action, desc){
       break;
     case 'openTemplatePanel':
       result.execute = function(){ openTemplatePanel(); };
+      break;
+    case 'openQuakePanel':
+      result.execute = function(){ openQuakePanel(); };
       break;
     case 'openPermissionPanel':
       result.execute = function(){ openPermissionPanel(); };
