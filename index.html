@@ -5362,9 +5362,24 @@ function startPersonSearch(drone){
             drone.lat += (ddy / dd) * STEP;
           }
         } else {
-          // 在边界内：随机游走，但需验证下一位置仍在灾区内（越界则反向）
-          var nlng = drone.lng + (Math.random() - 0.5) * 0.008;
-          var nlat = drone.lat + (Math.random() - 0.5) * 0.008;
+          // 在边界内：优先朝最近的未发现被困人员定向扫描（模拟热成像指向性引导），
+          // 无未发现目标或随机扰动时保持随机游走；下一位置越界则不移动
+          var nlng, nlat;
+          var sTarget = null, sDist = Infinity;
+          for(var ti=0; ti<persons.length; ti++){
+            if(discoveredPersons.indexOf(persons[ti].pid) >= 0) continue;
+            var tdx = persons[ti].lng - drone.lng, tdy = persons[ti].lat - drone.lat;
+            var td = Math.sqrt(tdx*tdx + tdy*tdy);
+            if(td < sDist){ sDist = td; sTarget = persons[ti]; }
+          }
+          if(sTarget && Math.random() < 0.75){
+            var md = sDist || 1e-6;
+            nlng = drone.lng + ((sTarget.lng - drone.lng) / md) * 0.007;
+            nlat = drone.lat + ((sTarget.lat - drone.lat) / md) * 0.007;
+          } else {
+            nlng = drone.lng + (Math.random() - 0.5) * 0.008;
+            nlat = drone.lat + (Math.random() - 0.5) * 0.008;
+          }
           if(!disasterBoundary || disasterBoundary.length < 3 || isPointInBoundary(nlng, nlat)){
             drone.lng = nlng;
             drone.lat = nlat;
