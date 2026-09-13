@@ -2323,6 +2323,23 @@ function closeNotice(){
   document.getElementById('notice-overlay').classList.remove('show');
   if(_noticeAutoTimer){ clearTimeout(_noticeAutoTimer); _noticeAutoTimer = null; }
 }
+// 静默通知：只写入通知历史与角标（右上角小数字），不弹出大窗。
+// 用于搜救发现人员等过程信息——大屏只在角落显示，需要时可点角标回看。
+function logNoticeSilent(title, body, type){
+  try{
+    noticeHistory.unshift({
+      title: title || '提示',
+      body: body || '',
+      type: type || 'info',
+      time: new Date().toLocaleTimeString('zh-CN',{hour12:false})
+    });
+    if(noticeHistory.length > NOTICE_MAX){
+      noticeHistory = noticeHistory.slice(0, NOTICE_MAX);
+    }
+    updateNoticeBadge();
+    sendDesktopNotify(title, body, type);
+  }catch(e){}
+}
 function updateNoticeBadge(){
   try{
     var badge = document.getElementById('notice-badge');
@@ -3320,7 +3337,7 @@ function autoDispatchGroundRescue(){
     setStatus('🚨 智能力量匹配：探查受困群众共 '+need.total+' 人（'+need.sites+'个点位），'
       +'需配属 '+parts.join('、')+'（本次新增出动 '+added.length+' 辆/组）'
       +(path ? '，正沿规划路线由起点向终点开进' : '（请先在路线设计中规划路线）'), 'var(--hi)');
-    showNotice('智能救援力量匹配完成',
+    logNoticeSilent('智能救援力量匹配完成',
       '无人机回传：发现受困群众共 '+need.total+' 人，分布于 '+need.sites+' 个点位\n'
       +'━━━━━━━━━━━━━━━━━━\n'
       +'受伤需医疗 '+need.people['1']+' 人 → 救护车 '+need.ambulance+' 辆（2人/辆）\n'
@@ -5401,6 +5418,18 @@ function updateScanRingPosition(droneId){
   }
 }
 
+// 全部被困人员均被发现后，才统一发动地面救援（避免边搜边派、车队反复增补）
+function maybeDispatchWhenAllFound(){
+  try{
+    if(persons.length > 0 && discoveredPersons.length >= persons.length){
+      setStatus('✓ 全部 '+persons.length+' 名被困人员均已定位，开始统一发动地面救援','var(--hi)');
+      autoDispatchGroundRescue();
+    }
+  }catch(e){
+    console.warn('maybeDispatchWhenAllFound异常:', e);
+  }
+}
+
 // 检测无人机附近的被困人员（自动生成新目标 + 5G通信判定 + 信息传输 + 物资申请）
 function detectPersonsNearDrone(drone){
   if(!drone) return;
@@ -5424,8 +5453,8 @@ function detectPersonsNearDrone(drone){
           transferPersonInfoVia5G(drone, np);
           // 自动申请救援物资
           requestSupplyForPerson(drone, np);
-          // 智能匹配地面救援力量（按人数/伤情）并沿规划路线开进
-          autoDispatchGroundRescue();
+          // 全部被困人员均被发现后，才统一发动地面救援
+          maybeDispatchWhenAllFound();
         }
       }
     }
@@ -5444,8 +5473,8 @@ function detectPersonsNearDrone(drone){
       showAIRecognitionEffect(drone, p);
       transferPersonInfoVia5G(drone, p);
       requestSupplyForPerson(drone, p);
-      // 智能匹配地面救援力量（手动标记的人员被无人机扫到后同样触发）
-      autoDispatchGroundRescue();
+      // 手动标记的人员被无人机扫到；全员发现后统一发动地面救援
+      maybeDispatchWhenAllFound();
     }
   }
 }
@@ -5578,7 +5607,7 @@ function transferPersonInfoVia5G(drone, person){
     ? '协同基站机：'+baseDrone.id+'（'+baseDrone.task+'）\n'
     : '协同基站机：未部署5G基站无人机\n';
   setStatus('✓ '+drone.id+' 通过5G通信发现被困人员 '+person.pid+'（'+info.need+'），'+(baseDrone?('协同基站机 '+baseDrone.id+' 已收信。'):''),'var(--hi)');
-  showNotice('5G协同 · 搜救发现被困人员',
+  logNoticeSilent('5G协同 · 搜救发现被困人员',
     '执行搜救机：'+drone.id+'\n'+
     baseInfo+
     '发现目标：'+person.pid+'\n'+
@@ -5617,8 +5646,7 @@ function requestSupplyForPerson(drone, person){
   };
   supplyRequests.push(req);
   renderSupplyReqPanel();
-  // 自动打开物资申请面板
-  document.getElementById('supply-req-panel').classList.add('show');
+  // 不再自动弹出物资申请面板：申请静默记录，在角落面板中查看
 }
 
 // 渲染物资申请面板
